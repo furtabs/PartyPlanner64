@@ -70,6 +70,10 @@ $codeMirrorReadonlyBackground: var(--code-readonly-bg-color);
   .toggleButton.pressed {
     background-color: rgba(0, 0, 0, 0.75);
   }
+
+  .cCompilerToggle {
+    margin-top: 4px;
+  }
 }
 
 .createEventGameToggles {

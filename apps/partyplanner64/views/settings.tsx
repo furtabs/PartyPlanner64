@@ -3,6 +3,11 @@ import * as Cookies from "cookies-js";
 import { setDebug, isDebug } from "../../../packages/lib/debug";
 import { ToggleButton } from "../controls";
 import { EditorThemes } from "../../../packages/lib/types";
+import {
+  CCompilerKind,
+  parseCCompilerKind,
+  setCCompilerKind,
+} from "../../../packages/lib/utils/c-compiler-kind";
 
 import "../css/settings.scss";
 
@@ -18,6 +23,7 @@ export enum $setting {
   "limitModelFPS" = "models.limitfps",
   "limitModelAnimations" = "models.limitAnimations",
   "modelUseGLB" = "models.useGLB",
+  "cCompiler" = "c.compiler",
 }
 
 interface SettingTypeMap {
@@ -32,9 +38,10 @@ interface SettingTypeMap {
   [$setting.limitModelFPS]: "checkbox";
   [$setting.limitModelAnimations]: "checkbox";
   [$setting.modelUseGLB]: "checkbox";
+  [$setting.cCompiler]: "ccompiler";
 }
 
-type SettingType = "checkbox" | "theme";
+type SettingType = "checkbox" | "theme" | "ccompiler";
 
 type SettingValueTypeForKey<TKey extends keyof SettingTypeMap> =
   SettingValueTypes[SettingTypeMap[TKey]];
@@ -42,6 +49,7 @@ type SettingValueTypeForKey<TKey extends keyof SettingTypeMap> =
 interface SettingValueTypes {
   checkbox: boolean;
   theme: EditorThemes;
+  ccompiler: CCompilerKind;
 }
 
 interface ISettingConfig<T extends SettingType> {
@@ -62,7 +70,8 @@ interface ISettingSection {
 type ISetting =
   | ISettingSection
   | ISettingConfig<"checkbox">
-  | ISettingConfig<"theme">;
+  | ISettingConfig<"theme">
+  | ISettingConfig<"ccompiler">;
 
 const _settings: ISetting[] = [
   { name: "Theme", type: "section" },
@@ -111,6 +120,14 @@ const _settings: ISetting[] = [
     name: "Allow All ROMs",
     advanced: true,
     desc: "Allows more than just the officially supported ROMs to attempt to load.",
+  },
+  { name: "C Compiler", type: "section" },
+  {
+    id: $setting.cCompiler,
+    type: "ccompiler",
+    default: CCompilerKind.SmallerC,
+    name: "C compiler",
+    desc: "Clang is the N64Recomp MIPS toolchain compiled with Emscripten. SmallerC is the original compiler, kept for compatibility.",
   },
   { name: "ROM", type: "section" },
   {
@@ -190,6 +207,9 @@ class SettingsManager {
         value = _getSettingDefault(name);
       } else {
         value = JSON.parse(val) as SettingValueTypeForKey<TKey>;
+        if (name === $setting.cCompiler) {
+          value = parseCCompilerKind(value) as SettingValueTypeForKey<TKey>;
+        }
       }
     } else {
       value = _getSettingDefault(name);
@@ -227,6 +247,7 @@ class SettingsManager {
 const _settingsManager = new SettingsManager();
 
 setDebug(_settingsManager.getSetting($setting.uiDebug));
+setCCompilerKind(_settingsManager.getSetting($setting.cCompiler));
 
 function _getValue<TKey extends keyof SettingTypeMap>(
   id?: TKey,
@@ -242,6 +263,9 @@ function _setValue<TKey extends keyof SettingTypeMap>(
   _settingsManager.setSetting(id, value);
   if (id === $setting.uiDebug) {
     setDebug(value as boolean);
+  }
+  if (id === $setting.cCompiler) {
+    setCCompilerKind(value as CCompilerKind);
   }
 }
 
@@ -285,6 +309,15 @@ export const Settings = class Settings extends React.Component {
               key={setting.id}
               value={value}
               onThemeChanged={this.onSettingChanged}
+            />
+          );
+        }
+        case "ccompiler": {
+          return (
+            <CCompilerSetting
+              name={setting.name}
+              desc={setting.desc!}
+              key={setting.id}
             />
           );
         }
@@ -403,6 +436,68 @@ function ThemeOption(props: IThemeOptionProps<EditorThemes>) {
         style={{ backgroundColor: props.accentColorHexString }}
       ></span>
     </ToggleButton>
+  );
+}
+
+interface ICCompilerSettingProps {
+  name: string;
+  desc: string;
+}
+
+function CCompilerSetting(props: ICCompilerSettingProps) {
+  return (
+    <div className="cCompilerSetting">
+      <div className="cCompilerSettingLines">
+        <span className="cCompilerSettingMain">{props.name}</span>
+        <br />
+        <span className="cCompilerSettingDesc">{props.desc}</span>
+      </div>
+      <CCompilerToggle />
+    </div>
+  );
+}
+
+/** Shared SmallerC / Clang switch used by Settings and the C event editor. */
+export function CCompilerToggle() {
+  const [value, setValue] = React.useState(
+    () =>
+      _settingsManager.getSetting($setting.cCompiler) ?? CCompilerKind.SmallerC,
+  );
+
+  React.useEffect(() => {
+    const listener: SettingChangedListener = (id) => {
+      if (id === $setting.cCompiler) {
+        setValue(
+          _settingsManager.getSetting($setting.cCompiler) ??
+            CCompilerKind.SmallerC,
+        );
+      }
+    };
+    addSettingChangedListener(listener);
+    return () => removeSettingChangedListener(listener);
+  }, []);
+
+  return (
+    <div className="cCompilerToggle">
+      <ToggleButton
+        id={CCompilerKind.Clang}
+        allowDeselect={false}
+        pressed={value === CCompilerKind.Clang}
+        title="N64Recomp Clang (MIPS), built with Emscripten"
+        onToggled={() => _setValue($setting.cCompiler, CCompilerKind.Clang)}
+      >
+        Clang
+      </ToggleButton>
+      <ToggleButton
+        id={CCompilerKind.SmallerC}
+        allowDeselect={false}
+        pressed={value === CCompilerKind.SmallerC}
+        title="Original SmallerC compiler, kept for compatibility"
+        onToggled={() => _setValue($setting.cCompiler, CCompilerKind.SmallerC)}
+      >
+        SmallerC
+      </ToggleButton>
+    </div>
   );
 }
 

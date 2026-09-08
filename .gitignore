@@ -27,6 +27,12 @@ apps/cli/dist
 # production
 /build
 
+# N64Recomp Clang WASM (built by scripts/build-clang-wasm.py)
+.clang-wasm-build/
+public/clang/clang.js
+public/clang/clang.wasm
+public/clang/clang.wasm.map
+
 # misc
 .DS_Store
 .env

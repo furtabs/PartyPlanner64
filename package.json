@@ -25,6 +25,8 @@
     "electron-publish": "node scripts/electron.js --publish",
     "vite-start": "vite",
     "vite-build": "vite build",
+    "build-clang-wasm": "python3 scripts/build-clang-wasm.py",
+    "fetch-clang-wasm": "python3 scripts/fetch-clang-wasm.py",
     "electron-builder-build": "electron-builder build -wl",
     "electron-builder-build-publish": "electron-builder build -wl --publish always"
   },

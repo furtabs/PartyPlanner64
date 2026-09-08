@@ -1,0 +1,184 @@
+name: Build Clang WASM
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [master]
+    paths:
+      - scripts/build-clang-wasm.py
+      - .github/workflows/build-clang-wasm.yml
+
+concurrency:
+  group: clang-wasm
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  build:
+    name: Emscripten Clang (MIPS)
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    env:
+      CCACHE_DIR: ${{ github.workspace }}/.ccache
+      CCACHE_MAXSIZE: 2G
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+            /usr/local/share/powershell /usr/share/swift /opt/hostedtoolcache/CodeQL
+          sudo docker image prune -af || true
+          sudo apt-get clean
+          df -h
+
+      - name: Install build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends cmake ninja-build ccache git python3
+          cmake --version
+          ninja --version
+          ccache --version
+
+      - name: Setup Emscripten
+        uses: emscripten-core/setup-emsdk@v16
+        with:
+          version: 5.0.1
+          actions-cache-folder: emsdk-cache
+
+      - name: Verify Emscripten
+        run: emcc -v
+
+      - name: Cache ccache
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.CCACHE_DIR }}
+          key: clang-wasm-ccache-${{ runner.os }}-${{ hashFiles('scripts/build-clang-wasm.py') }}
+          restore-keys: |
+            clang-wasm-ccache-${{ runner.os }}-
+
+      - name: Cache LLVM sources
+        uses: actions/cache@v4
+        with:
+          path: .clang-wasm-build/llvm-project
+          key: llvm-src-llvmorg-22.1.1
+
+      - name: Cache host tblgen
+        uses: actions/cache@v4
+        with:
+          path: .clang-wasm-build/host-bin
+          key: llvm-host-tblgen-${{ runner.os }}-llvmorg-22.1.1-min-tblgen
+
+      - name: Build Clang WASM
+        run: |
+          ccache -s || true
+          HOST_BIN=".clang-wasm-build/host-bin"
+          SKIP_HOST=()
+          if [[ -x "$HOST_BIN/llvm-tblgen" && -x "$HOST_BIN/clang-tblgen" && -x "$HOST_BIN/llvm-min-tblgen" ]]; then
+            SKIP_HOST=(--skip-host --host-bin "$HOST_BIN")
+          fi
+          python3 scripts/build-clang-wasm.py \
+            --jobs "$(nproc)" \
+            --wasm-jobs 2 \
+            --reclaim-disk \
+            "${SKIP_HOST[@]}"
+          ccache -s || true
+          ls -lh public/clang/clang.js public/clang/clang.wasm
+          df -h
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: clang-wasm
+          path: |
+            public/clang/clang.js
+            public/clang/clang.wasm
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Publish clang-wasm release
+        if: github.ref == 'refs/heads/master' && github.event_name != 'pull_request'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: clang-wasm
+          name: N64Recomp Clang WASM
+          prerelease: true
+          make_latest: false
+          fail_on_unmatched_files: true
+          files: |
+            public/clang/clang.js
+            public/clang/clang.wasm
+          body: |
+            Emscripten-built Clang with MIPS targets, matching [n64recomp-clang](https://github.com/LT-Schmiddy/n64recomp-clang) LLVM 22.1.1.
+
+            Place these files in `public/clang/` (or run `python3 scripts/fetch-clang-wasm.py`).
+
+            - Commit: ${{ github.sha }}
+            - Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+      - name: Summary
+        run: |
+          {
+            echo "## Clang WASM"
+            echo
+            echo "- \`public/clang/clang.js\` $(wc -c < public/clang/clang.js) bytes"
+            echo "- \`public/clang/clang.wasm\` $(wc -c < public/clang/clang.wasm) bytes"
+            echo
+            echo "Download from this run's artifacts, the \`clang-wasm\` GitHub Release, or:"
+            echo
+            echo "\`\`\`bash"
+            echo "python3 scripts/fetch-clang-wasm.py"
+            echo "\`\`\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  deploy-site:
+    name: Build and deploy website
+    needs: build
+    if: github.ref == 'refs/heads/master' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download Clang WASM
+        uses: actions/download-artifact@v4
+        with:
+          name: clang-wasm
+          path: public/clang
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type-check
+        run: npm run type-check
+
+      - name: Build site
+        run: |
+          export VITE_PP64_VERSION
+          VITE_PP64_VERSION="$(git describe --tags --long --always)"
+          echo "Building PartyPlanner64 ${VITE_PP64_VERSION}"
+          ls -lh public/clang/clang.js public/clang/clang.wasm
+          npm run vite-build
+          test -f build/index.html
+          test -f build/clang/clang.wasm
+
+      - name: Deploy to gh-pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./build
+          force_orphan: true
+          user_name: github-actions[bot]
+          user_email: github-actions[bot]@users.noreply.github.com
