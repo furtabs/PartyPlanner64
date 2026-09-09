@@ -1,8 +1,8 @@
 import * as React from "react";
 import * as Cookies from "cookies-js";
 import { setDebug, isDebug } from "../../../packages/lib/debug";
-import { ToggleButton } from "../controls";
-import { EditorThemes } from "../../../packages/lib/types";
+import { Button, ToggleButton } from "../controls";
+import { EditorThemes, Game } from "../../../packages/lib/types";
 import {
   CCompilerKind,
   ClangOptLevel,
@@ -12,6 +12,22 @@ import {
   setCCompilerKind,
   setClangOptLevel,
 } from "../../../packages/lib/utils/c-compiler-kind";
+import {
+  DEFAULT_DECOMP_SYMBOL_SOURCES,
+  IExtraSymbolSource,
+  addExtraSymbolListener,
+  createExtraSymbolSourceId,
+  getExtraSymbolStatuses,
+  loadExtraSymbolSources,
+  parseExtraSymbolSources,
+  removeInlineSymbolFile,
+  writeInlineSymbolFile,
+} from "../../../packages/lib/symbols/extra";
+import {
+  inferGameFromSymbolPath,
+  parseSymFile,
+} from "../../../packages/lib/symbols/parse";
+import { openFile } from "../../../packages/lib/utils/input";
 
 import "../css/settings.scss";
 
@@ -29,6 +45,7 @@ export enum $setting {
   "modelUseGLB" = "models.useGLB",
   "cCompiler" = "c.compiler",
   "cOptLevel" = "c.optlevel",
+  "symbolPaths" = "symbols.paths",
 }
 
 interface SettingTypeMap {
@@ -45,9 +62,10 @@ interface SettingTypeMap {
   [$setting.modelUseGLB]: "checkbox";
   [$setting.cCompiler]: "ccompiler";
   [$setting.cOptLevel]: "clangopt";
+  [$setting.symbolPaths]: "sympaths";
 }
 
-type SettingType = "checkbox" | "theme" | "ccompiler" | "clangopt";
+type SettingType = "checkbox" | "theme" | "ccompiler" | "clangopt" | "sympaths";
 
 type SettingValueTypeForKey<TKey extends keyof SettingTypeMap> =
   SettingValueTypes[SettingTypeMap[TKey]];
@@ -57,6 +75,7 @@ interface SettingValueTypes {
   theme: EditorThemes;
   ccompiler: CCompilerKind;
   clangopt: ClangOptLevel;
+  sympaths: IExtraSymbolSource[];
 }
 
 interface ISettingConfig<T extends SettingType> {
@@ -79,7 +98,8 @@ type ISetting =
   | ISettingConfig<"checkbox">
   | ISettingConfig<"theme">
   | ISettingConfig<"ccompiler">
-  | ISettingConfig<"clangopt">;
+  | ISettingConfig<"clangopt">
+  | ISettingConfig<"sympaths">;
 
 const _settings: ISetting[] = [
   { name: "Theme", type: "section" },
@@ -128,6 +148,15 @@ const _settings: ISetting[] = [
     name: "Allow All ROMs",
     advanced: true,
     desc: "Allows more than just the officially supported ROMs to attempt to load.",
+  },
+  { name: "Symbols", type: "section", advanced: true },
+  {
+    id: $setting.symbolPaths,
+    type: "sympaths",
+    default: DEFAULT_DECOMP_SYMBOL_SOURCES,
+    name: "Symbol files",
+    advanced: true,
+    desc: "NTSC-U splat symbol_addrs.txt or .sym CSV files merged with the built-in names. Defaults are the mariopartyrd decomps. Game is inferred from the URL or filename (marioparty3, MarioParty2U.sym, …).",
   },
   { name: "C Compiler", type: "section" },
   {
@@ -212,7 +241,12 @@ class SettingsManager {
     if (Cookies.enabled) {
       const val = Cookies.get(name);
       if (val === undefined) {
-        value = _getSettingDefault(name);
+        if (name === $setting.symbolPaths) {
+          value = (readLegacySymbolSources() ??
+            _getSettingDefault(name)) as SettingValueTypeForKey<TKey>;
+        } else {
+          value = _getSettingDefault(name);
+        }
       } else {
         value = JSON.parse(val) as SettingValueTypeForKey<TKey>;
         if (name === $setting.cCompiler) {
@@ -220,6 +254,11 @@ class SettingsManager {
         }
         if (name === $setting.cOptLevel) {
           value = parseClangOptLevel(value) as SettingValueTypeForKey<TKey>;
+        }
+        if (name === $setting.symbolPaths) {
+          value = parseExtraSymbolSources(
+            value,
+          ) as SettingValueTypeForKey<TKey>;
         }
       }
     } else {
@@ -237,6 +276,10 @@ class SettingsManager {
     this._tempSettings[name] = value;
     if (Cookies.enabled) {
       Cookies.set(name, JSON.stringify(value), { expires: Infinity });
+      if (name === $setting.symbolPaths) {
+        Cookies.expire("symbols.decomp");
+        Cookies.expire("symbols.extra");
+      }
     }
 
     this.listeners.forEach((callback) => {
@@ -282,7 +325,47 @@ function _setValue<TKey extends keyof SettingTypeMap>(
   if (id === $setting.cOptLevel) {
     setClangOptLevel(value as ClangOptLevel);
   }
+  if (id === $setting.symbolPaths) {
+    reloadExtraSymbolsFromSettings();
+  }
 }
+
+function readLegacySymbolSources(): IExtraSymbolSource[] | undefined {
+  if (!Cookies.enabled) {
+    return undefined;
+  }
+  const decomp = Cookies.get("symbols.decomp");
+  const extra = Cookies.get("symbols.extra");
+  if (decomp === undefined && extra === undefined) {
+    return undefined;
+  }
+  let decompValue: unknown = [];
+  let extraValue: unknown = [];
+  try {
+    if (decomp !== undefined) {
+      decompValue = JSON.parse(decomp);
+    }
+    if (extra !== undefined) {
+      extraValue = JSON.parse(extra);
+    }
+  } catch {
+    return undefined;
+  }
+  return [
+    ...parseExtraSymbolSources(decompValue),
+    ...parseExtraSymbolSources(extraValue),
+  ];
+}
+
+function collectExtraSymbolSources(): IExtraSymbolSource[] {
+  return _settingsManager.getSetting($setting.symbolPaths) ?? [];
+}
+
+function reloadExtraSymbolsFromSettings(): void {
+  void loadExtraSymbolSources(collectExtraSymbolSources());
+}
+
+reloadExtraSymbolsFromSettings();
 
 function _getEffectiveSettings() {
   let settings = _settings;
@@ -330,6 +413,16 @@ export const Settings = class Settings extends React.Component {
         case "ccompiler": {
           return (
             <CCompilerSetting
+              name={setting.name}
+              desc={setting.desc!}
+              key={setting.id}
+            />
+          );
+        }
+        case "sympaths": {
+          return (
+            <SymbolPathsSetting
+              id={$setting.symbolPaths}
               name={setting.name}
               desc={setting.desc!}
               key={setting.id}
@@ -482,9 +575,8 @@ function CCompilerControls() {
     () =>
       _settingsManager.getSetting($setting.cCompiler) ?? CCompilerKind.Clang,
   );
-  const [optLevel, setOptLevel] = React.useState<ClangOptLevel>(
-    () =>
-      parseClangOptLevel(_settingsManager.getSetting($setting.cOptLevel)),
+  const [optLevel, setOptLevel] = React.useState<ClangOptLevel>(() =>
+    parseClangOptLevel(_settingsManager.getSetting($setting.cOptLevel)),
   );
 
   React.useEffect(() => {
@@ -522,7 +614,9 @@ function CCompilerControls() {
           allowDeselect={false}
           pressed={value === CCompilerKind.SmallerC}
           title="Legacy SmallerC compiler. Use only for older event scripts."
-          onToggled={() => _setValue($setting.cCompiler, CCompilerKind.SmallerC)}
+          onToggled={() =>
+            _setValue($setting.cCompiler, CCompilerKind.SmallerC)
+          }
         >
           SmallerC (legacy)
         </ToggleButton>
@@ -544,6 +638,173 @@ function CCompilerControls() {
           ))}
         </select>
       </label>
+    </div>
+  );
+}
+
+function usaVersionLabel(game: Game | undefined): string {
+  switch (game) {
+    case Game.MP1_USA:
+      return "MP1";
+    case Game.MP2_USA:
+      return "MP2";
+    case Game.MP3_USA:
+      return "MP3";
+    default:
+      return "";
+  }
+}
+
+interface ISymbolPathsSettingProps {
+  id: $setting.symbolPaths;
+  name: string;
+  desc: string;
+}
+
+function SymbolPathsSetting(props: ISymbolPathsSettingProps) {
+  const [pathText, setPathText] = React.useState("");
+  const [error, setError] = React.useState("");
+  const [, bump] = React.useState(0);
+
+  React.useEffect(() => {
+    return addExtraSymbolListener(() => bump((n: number) => n + 1));
+  }, []);
+
+  const sources = (_getValue(props.id) ?? []) as IExtraSymbolSource[];
+  const statuses = getExtraSymbolStatuses();
+  const statusById = new Map(statuses.map((status) => [status.id, status]));
+
+  function commit(next: IExtraSymbolSource[]) {
+    _setValue(props.id, next);
+    setError("");
+    bump((n: number) => n + 1);
+  }
+
+  function addPath(path: string, inline?: { id: string; contents: string }) {
+    const trimmed = path.trim();
+    if (!trimmed) {
+      setError("Enter a symbol file URL or path first.");
+      return;
+    }
+    const resolvedGame = inferGameFromSymbolPath(trimmed);
+    if (!resolvedGame) {
+      setError(
+        "Could not tell which game this file is for. Use a marioparty3 URL or MarioParty3U.sym filename.",
+      );
+      return;
+    }
+    const id = inline?.id ?? createExtraSymbolSourceId();
+    if (inline) {
+      writeInlineSymbolFile(id, inline.contents);
+    }
+    commit([
+      ...sources,
+      {
+        id,
+        path: trimmed,
+        game: resolvedGame,
+        inline: !!inline,
+      },
+    ]);
+    setPathText("");
+  }
+
+  function removeSource(source: IExtraSymbolSource) {
+    if (source.inline) {
+      removeInlineSymbolFile(source.id);
+    }
+    commit(sources.filter((entry) => entry.id !== source.id));
+  }
+
+  function addLocalFile() {
+    openFile(".sym,.csv,.txt,text/plain", (event: Event) => {
+      const input = event.target as HTMLInputElement;
+      const file = input.files && input.files[0];
+      if (!file) {
+        return;
+      }
+      void file.text().then((contents) => {
+        const parsed = parseSymFile(contents);
+        if (!parsed.length) {
+          setError(
+            "That file did not look like a .sym CSV or splat symbol_addrs.txt list.",
+          );
+          return;
+        }
+        addPath(file.name, {
+          id: createExtraSymbolSourceId(),
+          contents,
+        });
+      });
+    });
+  }
+
+  return (
+    <div className="symbolPathsSetting">
+      <div className="symbolPathsSettingLines">
+        <span className="symbolPathsSettingMain">{props.name}</span>
+        <br />
+        <span className="symbolPathsSettingDesc">{props.desc}</span>
+      </div>
+      {sources.length > 0 && (
+        <ul className="symbolPathsList">
+          {sources.map((source) => {
+            const status = statusById.get(source.id);
+            const version = usaVersionLabel(
+              status?.game ??
+                source.game ??
+                inferGameFromSymbolPath(source.path),
+            );
+            return (
+              <li className="symbolPathsRow" key={source.id}>
+                {version && (
+                  <span className="symbolPathsVersion">{version}</span>
+                )}
+                <div className="symbolPathsRowPath" title={source.path}>
+                  {source.path}
+                </div>
+                <span
+                  className={
+                    "symbolPathsStatus" +
+                    (status?.state === "error" ? " symbolPathsStatusError" : "")
+                  }
+                >
+                  {status?.state === "loading" && "Loading…"}
+                  {status?.state === "ok" && `${status.count ?? 0} symbols`}
+                  {status?.state === "error" && (status.error || "Failed")}
+                </span>
+                <Button
+                  css="symbolPathsRemove"
+                  title="Remove this symbol file"
+                  onClick={() => removeSource(source)}
+                >
+                  Remove
+                </Button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      <div className="symbolPathsAdd">
+        <input
+          className="symbolPathsInput"
+          type="text"
+          spellCheck={false}
+          placeholder="https://github.com/mariopartyrd/marioparty3/blob/main/symbol_addrs.txt"
+          value={pathText}
+          onChange={(e) => setPathText(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              addPath(pathText);
+            }
+          }}
+          aria-label={`Add ${props.name} path`}
+        />
+        <Button onClick={() => addPath(pathText)}>Add URL</Button>
+        <Button onClick={addLocalFile}>Add file</Button>
+      </div>
+      {error && <div className="symbolPathsError">{error}</div>}
     </div>
   );
 }

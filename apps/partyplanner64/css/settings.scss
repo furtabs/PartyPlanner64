@@ -101,3 +101,83 @@
     opacity: 0.55;
   }
 }
+
+.symbolPathsSetting {
+  margin: 12px 0 18px;
+}
+
+.symbolPathsSettingMain {
+  font-weight: bold;
+}
+
+.symbolPathsSettingDesc {
+  font-size: 9pt;
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.symbolPathsList {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+}
+
+.symbolPathsRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 6px 0;
+  padding: 6px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.symbolPathsRowPath {
+  flex: 1 1 220px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: "Courier New", Courier, monospace;
+  font-size: 10pt;
+}
+
+.symbolPathsAdd {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.symbolPathsInput {
+  flex: 1 1 260px;
+  min-width: 180px;
+  color: #111;
+  padding: 4px 6px;
+}
+
+.symbolPathsVersion {
+  flex: 0 0 auto;
+  font-size: 9pt;
+  font-weight: bold;
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.symbolPathsStatus {
+  font-size: 9pt;
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.symbolPathsStatusError {
+  color: #ffb4b4;
+}
+
+.symbolPathsError {
+  margin-top: 6px;
+  font-size: 9pt;
+  color: #ffb4b4;
+}
+
+.symbolPathsRemove {
+  background-color: rgba(0, 0, 0, 0.2);
+}
