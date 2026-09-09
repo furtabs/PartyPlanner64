@@ -209,6 +209,9 @@ export class EventDetailsForm extends React.Component<IEventDetailsFormProps> {
             <br />
             <label>C Compiler:</label>
             <CCompilerToggle />
+            <div className="cCompilerLegacyHint">
+              Clang is the default. SmallerC is only for legacy scripts.
+            </div>
           </>
         )}
         <br />

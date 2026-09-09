@@ -5,8 +5,12 @@ import { ToggleButton } from "../controls";
 import { EditorThemes } from "../../../packages/lib/types";
 import {
   CCompilerKind,
+  ClangOptLevel,
+  CLANG_OPT_LEVELS,
   parseCCompilerKind,
+  parseClangOptLevel,
   setCCompilerKind,
+  setClangOptLevel,
 } from "../../../packages/lib/utils/c-compiler-kind";
 
 import "../css/settings.scss";
@@ -24,6 +28,7 @@ export enum $setting {
   "limitModelAnimations" = "models.limitAnimations",
   "modelUseGLB" = "models.useGLB",
   "cCompiler" = "c.compiler",
+  "cOptLevel" = "c.optlevel",
 }
 
 interface SettingTypeMap {
@@ -39,9 +44,10 @@ interface SettingTypeMap {
   [$setting.limitModelAnimations]: "checkbox";
   [$setting.modelUseGLB]: "checkbox";
   [$setting.cCompiler]: "ccompiler";
+  [$setting.cOptLevel]: "clangopt";
 }
 
-type SettingType = "checkbox" | "theme" | "ccompiler";
+type SettingType = "checkbox" | "theme" | "ccompiler" | "clangopt";
 
 type SettingValueTypeForKey<TKey extends keyof SettingTypeMap> =
   SettingValueTypes[SettingTypeMap[TKey]];
@@ -50,6 +56,7 @@ interface SettingValueTypes {
   checkbox: boolean;
   theme: EditorThemes;
   ccompiler: CCompilerKind;
+  clangopt: ClangOptLevel;
 }
 
 interface ISettingConfig<T extends SettingType> {
@@ -71,7 +78,8 @@ type ISetting =
   | ISettingSection
   | ISettingConfig<"checkbox">
   | ISettingConfig<"theme">
-  | ISettingConfig<"ccompiler">;
+  | ISettingConfig<"ccompiler">
+  | ISettingConfig<"clangopt">;
 
 const _settings: ISetting[] = [
   { name: "Theme", type: "section" },
@@ -125,9 +133,9 @@ const _settings: ISetting[] = [
   {
     id: $setting.cCompiler,
     type: "ccompiler",
-    default: CCompilerKind.SmallerC,
+    default: CCompilerKind.Clang,
     name: "C compiler",
-    desc: "Clang is the N64Recomp MIPS toolchain compiled with Emscripten. SmallerC is the original compiler, kept for compatibility.",
+    desc: "Clang is the default compiler for C events. SmallerC is legacy and only for older event scripts.",
   },
   { name: "ROM", type: "section" },
   {
@@ -210,6 +218,9 @@ class SettingsManager {
         if (name === $setting.cCompiler) {
           value = parseCCompilerKind(value) as SettingValueTypeForKey<TKey>;
         }
+        if (name === $setting.cOptLevel) {
+          value = parseClangOptLevel(value) as SettingValueTypeForKey<TKey>;
+        }
       }
     } else {
       value = _getSettingDefault(name);
@@ -248,6 +259,7 @@ const _settingsManager = new SettingsManager();
 
 setDebug(_settingsManager.getSetting($setting.uiDebug));
 setCCompilerKind(_settingsManager.getSetting($setting.cCompiler));
+setClangOptLevel(_settingsManager.getSetting($setting.cOptLevel));
 
 function _getValue<TKey extends keyof SettingTypeMap>(
   id?: TKey,
@@ -266,6 +278,9 @@ function _setValue<TKey extends keyof SettingTypeMap>(
   }
   if (id === $setting.cCompiler) {
     setCCompilerKind(value as CCompilerKind);
+  }
+  if (id === $setting.cOptLevel) {
+    setClangOptLevel(value as ClangOptLevel);
   }
 }
 
@@ -452,16 +467,24 @@ function CCompilerSetting(props: ICCompilerSettingProps) {
         <br />
         <span className="cCompilerSettingDesc">{props.desc}</span>
       </div>
-      <CCompilerToggle />
+      <CCompilerControls />
     </div>
   );
 }
 
 /** Shared SmallerC / Clang switch used by Settings and the C event editor. */
 export function CCompilerToggle() {
+  return <CCompilerControls />;
+}
+
+function CCompilerControls() {
   const [value, setValue] = React.useState(
     () =>
-      _settingsManager.getSetting($setting.cCompiler) ?? CCompilerKind.SmallerC,
+      _settingsManager.getSetting($setting.cCompiler) ?? CCompilerKind.Clang,
+  );
+  const [optLevel, setOptLevel] = React.useState<ClangOptLevel>(
+    () =>
+      parseClangOptLevel(_settingsManager.getSetting($setting.cOptLevel)),
   );
 
   React.useEffect(() => {
@@ -469,7 +492,12 @@ export function CCompilerToggle() {
       if (id === $setting.cCompiler) {
         setValue(
           _settingsManager.getSetting($setting.cCompiler) ??
-            CCompilerKind.SmallerC,
+            CCompilerKind.Clang,
+        );
+      }
+      if (id === $setting.cOptLevel) {
+        setOptLevel(
+          parseClangOptLevel(_settingsManager.getSetting($setting.cOptLevel)),
         );
       }
     };
@@ -478,25 +506,44 @@ export function CCompilerToggle() {
   }, []);
 
   return (
-    <div className="cCompilerToggle">
-      <ToggleButton
-        id={CCompilerKind.Clang}
-        allowDeselect={false}
-        pressed={value === CCompilerKind.Clang}
-        title="N64Recomp Clang (MIPS), built with Emscripten"
-        onToggled={() => _setValue($setting.cCompiler, CCompilerKind.Clang)}
-      >
-        Clang
-      </ToggleButton>
-      <ToggleButton
-        id={CCompilerKind.SmallerC}
-        allowDeselect={false}
-        pressed={value === CCompilerKind.SmallerC}
-        title="Original SmallerC compiler, kept for compatibility"
-        onToggled={() => _setValue($setting.cCompiler, CCompilerKind.SmallerC)}
-      >
-        SmallerC
-      </ToggleButton>
+    <div className="cCompilerControls">
+      <div className="cCompilerToggle">
+        <ToggleButton
+          id={CCompilerKind.Clang}
+          allowDeselect={false}
+          pressed={value === CCompilerKind.Clang}
+          title="Default C compiler for event scripts"
+          onToggled={() => _setValue($setting.cCompiler, CCompilerKind.Clang)}
+        >
+          Clang
+        </ToggleButton>
+        <ToggleButton
+          id={CCompilerKind.SmallerC}
+          allowDeselect={false}
+          pressed={value === CCompilerKind.SmallerC}
+          title="Legacy SmallerC compiler. Use only for older event scripts."
+          onToggled={() => _setValue($setting.cCompiler, CCompilerKind.SmallerC)}
+        >
+          SmallerC (legacy)
+        </ToggleButton>
+      </div>
+      <label className="cCompilerOptLevel">
+        <span>Opt</span>
+        <select
+          value={optLevel}
+          disabled={value !== CCompilerKind.Clang}
+          title="Clang optimization level"
+          onChange={(e) =>
+            _setValue($setting.cOptLevel, parseClangOptLevel(e.target.value))
+          }
+        >
+          {CLANG_OPT_LEVELS.map((level) => (
+            <option key={level} value={level}>
+              {level}
+            </option>
+          ))}
+        </select>
+      </label>
     </div>
   );
 }

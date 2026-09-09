@@ -74,6 +74,17 @@ $codeMirrorReadonlyBackground: var(--code-readonly-bg-color);
   .cCompilerToggle {
     margin-top: 4px;
   }
+
+  .cCompilerControls {
+    margin-top: 4px;
+  }
+
+  .cCompilerLegacyHint {
+    margin-top: 6px;
+    font-size: 9pt;
+    font-weight: normal;
+    opacity: 0.85;
+  }
 }
 
 .createEventGameToggles {

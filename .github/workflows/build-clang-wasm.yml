@@ -88,6 +88,7 @@ jobs:
             "${SKIP_HOST[@]}"
           ccache -s || true
           ls -lh public/clang/clang.js public/clang/clang.wasm
+          node scripts/smoke-clang-wasm.mjs public/clang/clang.js
           df -h
 
       - name: Upload artifacts

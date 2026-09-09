@@ -32,6 +32,8 @@ apps/cli/dist
 public/clang/clang.js
 public/clang/clang.wasm
 public/clang/clang.wasm.map
+public/assets/clang/clang.js
+public/assets/clang/clang.wasm
 
 # misc
 .DS_Store

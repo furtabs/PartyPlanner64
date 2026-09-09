@@ -7,7 +7,12 @@ export {
   CCompilerKind,
   getCCompilerKind,
   setCCompilerKind,
+  getClangOptLevel,
+  setClangOptLevel,
+  parseClangOptLevel,
+  CLANG_OPT_LEVELS,
 } from "./c-compiler-kind";
+export type { ClangOptLevel } from "./c-compiler-kind";
 
 /**
  * Compiles C source to MIPS assembly.

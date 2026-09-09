@@ -63,6 +63,9 @@ EMSCRIPTEN_LINK_FLAGS = " ".join(
         "-sEXPORTED_FUNCTIONS=['_main','_malloc','_free']",
         "-sFILESYSTEM=1",
         "-sNODERAWFS=0",
+        # Binaryen wasm-opt can strip LLVM cl::opt static constructors,
+        # which makes MIPS -mllvm flags like -mgpopt fail at runtime.
+        "-sWASM_OPT=0",
         "-Wno-unused-command-line-argument",
     ]
 )
@@ -97,6 +100,7 @@ COMMON_LLVM_CACHE = {
     "CLANG_INCLUDE_TESTS": "OFF",
     "CLANG_PLUGIN_SUPPORT": "OFF",
     "CLANG_TOOL_LIBCLANG_BUILD": "OFF",
+    "LLVM_NO_DEAD_STRIP": "ON",
 }
 
 
@@ -344,6 +348,9 @@ def copy_output() -> None:
     wasm_size = (OUTPUT_DIR / "clang.wasm").stat().st_size
     print(f"Wrote {OUTPUT_DIR / 'clang.js'} ({js_size} bytes)")
     print(f"Wrote {OUTPUT_DIR / 'clang.wasm'} ({wasm_size} bytes)")
+    smoke = ROOT / "scripts" / "smoke-clang-wasm.mjs"
+    if smoke.is_file() and shutil.which("node"):
+        run(["node", str(smoke), str(OUTPUT_DIR / "clang.js")])
 
 
 def reclaim_disk() -> None:

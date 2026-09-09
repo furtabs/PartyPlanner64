@@ -1,0 +1,32 @@
+.clangCompileProgress {
+  position: fixed;
+  left: 50%;
+  bottom: 24px;
+  transform: translateX(-50%);
+  z-index: 9500;
+  width: min(420px, calc(100vw - 32px));
+  padding: 12px 14px 14px;
+  border-radius: 6px;
+  background: rgba(12, 12, 16, 0.92);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  color: var(--text-color);
+}
+
+.clangCompileProgressLabel {
+  font-size: 13px;
+  margin-bottom: 8px;
+}
+
+.clangCompileProgressTrack {
+  height: 8px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.15);
+  overflow: hidden;
+}
+
+.clangCompileProgressFill {
+  height: 100%;
+  border-radius: 4px;
+  background: #4aa3ff;
+  transition: width 0.2s ease-out;
+}

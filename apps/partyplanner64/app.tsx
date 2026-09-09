@@ -49,6 +49,7 @@ import {
   clearUndoHistory,
 } from "./appControl";
 import { Blocker } from "./components/blocker";
+import { ClangCompileProgressBar } from "./components/ClangCompileProgress";
 import { killEvent } from "./utils/react";
 import {
   getDefaultAdditionalBgCode,
@@ -349,6 +350,7 @@ function PP64AppInternal(props: PP64AppInternalProps) {
           <div id="dragZone"></div>
         </div>
       </div>
+      <ClangCompileProgressBar />
       <PP64Blocker />
     </div>
   );
