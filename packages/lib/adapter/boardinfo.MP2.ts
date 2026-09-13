@@ -1,12 +1,10 @@
 import { createBoardInfo } from "./boardinfobase";
-import { IBoard } from "../../../apps/partyplanner64/boards";
-import { hvqfs } from "../fs/hvqfs";
-import { strings } from "../fs/strings";
-import { mainfs } from "../fs/mainfs";
 import { arrayToArrayBuffer } from "../utils/arrays";
 import { toPack } from "../utils/img/ImgPack";
-import { scenes } from "../fs/scenes";
 import { CostumeType } from "../types";
+import { romhandler } from "../romhandler";
+import { strToBytes } from "../fs/strings";
+import { IBoard } from "../boards";
 
 // Western Land - (U) ROM
 const MP2_WESTERN = createBoardInfo("MP2_WESTERN", {
@@ -59,6 +57,7 @@ const MP2_WESTERN = createBoardInfo("MP2_WESTERN", {
   audioIndexOffset: 0x33aa, // 0x0029AE7A; // 0x80105BAA
 
   onLoad: function (board: IBoard) {
+    const hvqfs = romhandler.getRom()!.getHVQFS();
     board.otherbg.largescene = hvqfs.readBackground(MP2_WESTERN.bgDir + 2).src;
   },
 
@@ -67,22 +66,23 @@ const MP2_WESTERN = createBoardInfo("MP2_WESTERN", {
     // 0x004F is the Bowser scene, 0x0051 is the results scene.
     // To debug, end game early with 0x800F93AF (turn count)
     // Then watch scene change 0x800FA63C
+    const scenes = romhandler.getRom()!.getScenes();
     const sceneEndView = scenes.getDataView(82);
     sceneEndView.setUint16(0x2e0e, 0x0051); // 0x8010560C, 0x35BBEE
 
     // Then, make the scared Koopa's message at the endgame be more chill.
+    const strings = romhandler.getRom()!.getStrings();
     let bytes: number[] = [];
     bytes.push(0x0b);
-    bytes = bytes.concat(strings._strToBytes("Don't listen to Toad!"));
+    bytes = bytes.concat(strToBytes("Don't listen to Toad!"));
     bytes.push(0x0a); // \n
-    bytes = bytes.concat(
-      strings._strToBytes("I've got the results. Follow me!"),
-    );
+    bytes = bytes.concat(strToBytes("I've got the results. Follow me!"));
     bytes.push(0x00); // Null byte
     strings.write(697, arrayToArrayBuffer(bytes));
 
     // Hide some intro scene graphics
     // Bowser sign
+    const mainfs = romhandler.getRom()?.getMainFS()!;
     let oldPack = mainfs.get(10, 410);
     let imgInfoArr = [
       { src: new ArrayBuffer(144 * 128 * 4), width: 144, height: 128, bpp: 32 },

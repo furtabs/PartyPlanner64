@@ -1,0 +1,61 @@
+name: Deploy site
+
+on:
+  push:
+    branches: [master]
+    paths-ignore:
+      - scripts/build-clang-wasm.py
+      - .github/workflows/build-clang-wasm.yml
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-site
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  deploy:
+    name: Build and deploy GitHub Pages
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type-check
+        run: npm run type-check
+
+      - name: Fetch Clang WASM
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python3 scripts/fetch-clang-wasm.py --allow-missing
+
+      - name: Build
+        run: |
+          export VITE_PP64_VERSION
+          VITE_PP64_VERSION="$(git describe --tags --long --always)"
+          echo "Building PartyPlanner64 ${VITE_PP64_VERSION}"
+          npm run vite-build
+          test -f build/index.html
+
+      - name: Deploy to gh-pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./build
+          force_orphan: true
+          user_name: github-actions[bot]
+          user_email: github-actions[bot]@users.noreply.github.com

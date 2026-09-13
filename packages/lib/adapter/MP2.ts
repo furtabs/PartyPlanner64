@@ -1,30 +1,24 @@
 import { AdapterBase } from "./AdapterBase";
-import {
-  IBoard,
-  ISpace,
-  addEventToSpaceInternal,
-} from "../../../apps/partyplanner64/boards";
-import { animationfs } from "../fs/animationfs";
 import { CostumeType, Space } from "../types";
 import { createEventInstance, EventMap } from "../events/events";
-import { strings } from "../fs/strings";
 import {
   arrayToArrayBuffer,
   arrayBufferToDataURL,
   arrayBufferToImageData,
 } from "../utils/arrays";
-import { hvqfs } from "../fs/hvqfs";
 import { createContext, createImage } from "../utils/canvas";
 import { $$log } from "../utils/debug";
 import { toArrayBuffer, cutFromWhole } from "../utils/image";
-import { mainfs } from "../fs/mainfs";
-import { toPack } from "../utils/img/ImgPack";
+import { imgInfoSrcToArrayBuffer, toPack } from "../utils/img/ImgPack";
 import { IBoardInfo } from "./boardinfobase";
 import { BankEvent } from "../events/builtin/events.common";
 import { getImageData } from "../utils/img/getImageData";
 import { createBoardOverlay } from "./MP2.U.boardoverlay";
+import { romhandler } from "../romhandler";
+import { strToBytes } from "../fs/strings";
+import { IBoard, ISpace, addEventToSpaceInternal } from "../boards";
 
-import mp2boardselectblank1Image from "../../../apps/partyplanner64/img/details/mp2boardselectblank1.png";
+import mp2boardselectblank1Image from "../img/detail/mp2boardselectblank1.png";
 
 export class MP2Adapter extends AdapterBase {
   public gameVersion: 1 | 2 | 3 = 2;
@@ -73,6 +67,7 @@ export class MP2Adapter extends AdapterBase {
 
     // Remove the animations (we might add our own after this though).
     if (typeof boardInfo.animBgSet === "number") {
+      const animationfs = romhandler.getRom()!.getAnimationFS();
       animationfs.setSetEntryCount(boardInfo.animBgSet, 0);
     }
   }
@@ -129,6 +124,7 @@ export class MP2Adapter extends AdapterBase {
       // if (Array.isArray(idx))
       //   idx = idx[0];
 
+      const strings = romhandler.getRom()!.getStrings();
       const str = strings.read(idx as number) as string;
       const lines = str.split("\n");
 
@@ -151,33 +147,32 @@ export class MP2Adapter extends AdapterBase {
 
   onWriteStrings(board: IBoard, boardInfo: IBoardInfo) {
     const strs = boardInfo.str || {};
+    const strings = romhandler.getRom()!.getStrings();
 
     // Various details about the board when selecting it
     if (strs.boardSelect) {
       let bytes = [];
       bytes.push(0x0b); // Clear?
       bytes.push(0x06); // Start BLUE
-      bytes = bytes.concat(strings._strToBytes(board.name || ""));
+      bytes = bytes.concat(strToBytes(board.name || ""));
       bytes.push(0x19);
       bytes.push(0x04); // Start Purple?
       bytes = bytes.concat([0x0e, 0x0e]); // Tabs
-      bytes = bytes.concat(strings._strToBytes("Difficulty"));
+      bytes = bytes.concat(strToBytes("Difficulty"));
       bytes.push(0x19);
-      bytes = bytes.concat(strings._strToBytes(" : "));
+      bytes = bytes.concat(strToBytes(" : "));
       const star = 0x3b;
       if (board.difficulty > 5 || board.difficulty < 1) {
         // Hackers!
         bytes.push(star);
-        bytes = bytes.concat(strings._strToBytes(" "));
+        bytes = bytes.concat(strToBytes(" "));
         bytes.push(0x3e); // Little x
-        bytes = bytes.concat(
-          strings._strToBytes(" " + board.difficulty.toString()),
-        );
+        bytes = bytes.concat(strToBytes(" " + board.difficulty.toString()));
       } else {
         for (let i = 0; i < board.difficulty; i++) bytes.push(star);
       }
       bytes.push(0x0a); // \n
-      bytes = bytes.concat(strings._strToBytes(board.description || "")); // Assumes \n's are correct within.
+      bytes = bytes.concat(strToBytes(board.description || "")); // Assumes \n's are correct within.
       bytes.push(0x00); // Null byte
 
       const strBuffer = arrayToArrayBuffer(bytes);
@@ -191,7 +186,7 @@ export class MP2Adapter extends AdapterBase {
       let bytes = [];
       bytes.push(0x0b);
       bytes.push(0x06);
-      bytes = bytes.concat(strings._strToBytes(board.name || ""));
+      bytes = bytes.concat(strToBytes(board.name || ""));
       bytes.push(0x19);
       bytes.push(0x00); // Null byte
       const strBuffer = arrayToArrayBuffer(bytes);
@@ -207,17 +202,17 @@ export class MP2Adapter extends AdapterBase {
     if (strs.boardGreeting && strs.boardGreeting.length) {
       let bytes = [];
       bytes.push(0x0b);
-      bytes = bytes.concat(strings._strToBytes("We're here, everyone!"));
+      bytes = bytes.concat(strToBytes("We're here, everyone!"));
       bytes.push(0x0a); // \n
-      bytes = bytes.concat(strings._strToBytes("This is "));
+      bytes = bytes.concat(strToBytes("This is "));
       bytes.push(0x06); // Blue
       bytes.push(0x0f);
-      bytes = bytes.concat(strings._strToBytes((board.name || "") + "!!!"));
+      bytes = bytes.concat(strToBytes((board.name || "") + "!!!"));
       bytes.push(0x16);
       bytes.push(0x19);
       bytes.push(0xff);
       // bytes.push(0x0B);
-      // bytes = bytes.concat(strings._strToBytes("Your objective this time,"));
+      // bytes = bytes.concat(strToBytes("Your objective this time,"));
       bytes.push(0x00); // Null byte
 
       let strBuffer = arrayToArrayBuffer(bytes);
@@ -225,11 +220,9 @@ export class MP2Adapter extends AdapterBase {
 
       bytes = [];
       bytes.push(0x0b);
-      bytes = bytes.concat(
-        strings._strToBytes("Now, before this adventure begins,"),
-      );
+      bytes = bytes.concat(strToBytes("Now, before this adventure begins,"));
       bytes.push(0x0a); // \n
-      bytes = bytes.concat(strings._strToBytes("we must decide turn order."));
+      bytes = bytes.concat(strToBytes("we must decide turn order."));
       bytes.push(0xff);
       bytes.push(0x00); // Null byte
 
@@ -241,21 +234,21 @@ export class MP2Adapter extends AdapterBase {
     if (strs.boardWinner) {
       let bytes = [];
       bytes.push(0x0b);
-      bytes = bytes.concat(strings._strToBytes("Well done, "));
+      bytes = bytes.concat(strToBytes("Well done, "));
       bytes.push(0x11); // Player
-      bytes = bytes.concat(strings._strToBytes("!"));
+      bytes = bytes.concat(strToBytes("!"));
       bytes.push(0x0a); // \n
-      bytes = bytes.concat(strings._strToBytes("You are the "));
+      bytes = bytes.concat(strToBytes("You are the "));
       bytes.push(0x07); // Yellow
       bytes.push(0x0f);
-      bytes = bytes.concat(strings._strToBytes("Super Star"));
+      bytes = bytes.concat(strToBytes("Super Star"));
       bytes.push(0x16);
       bytes.push(0x19);
       bytes.push(0x0a); // \n
-      bytes = bytes.concat(strings._strToBytes("of "));
+      bytes = bytes.concat(strToBytes("of "));
       bytes.push(0x06); // Blue
       bytes.push(0x0f);
-      bytes = bytes.concat(strings._strToBytes((board.name || "") + "!!!"));
+      bytes = bytes.concat(strToBytes((board.name || "") + "!!!"));
       bytes.push(0x16);
       bytes.push(0x19);
       bytes.push(0x00); // Null byte
@@ -268,10 +261,10 @@ export class MP2Adapter extends AdapterBase {
     if (strs.boardPlayCount) {
       let bytes = [];
       bytes.push(0x0b);
-      bytes = bytes.concat(strings._strToBytes(board.name || ""));
+      bytes = bytes.concat(strToBytes(board.name || ""));
       bytes = bytes.concat([0x0e, 0x0e, 0x0e, 0x0e, 0x0e, 0x0e]); // Tabs
       bytes.push(0x11); // Play count
-      bytes = bytes.concat(strings._strToBytes(" Time(s)"));
+      bytes = bytes.concat(strToBytes(" Time(s)"));
       bytes.push(0x00); // Null byte
 
       const strBuffer = arrayToArrayBuffer(bytes);
@@ -517,8 +510,10 @@ export class MP2Adapter extends AdapterBase {
     if (typeof boardInfo.animBgSet !== "number" || !boardInfo.bgDir) return;
 
     // Perf: This is a bit redundant because we read the data URI previously.
+    const hvqfs = romhandler.getRom()!.getHVQFS();
     const mainBgImgData = hvqfs.readBackgroundImgData(boardInfo.bgDir);
 
+    const animationfs = romhandler.getRom()!.getAnimationFS();
     const animBgs = animationfs.readAnimationBackgrounds(
       boardInfo.animBgSet,
       mainBgImgData,
@@ -567,6 +562,7 @@ export class MP2Adapter extends AdapterBase {
 
     await Promise.all(animPromises);
 
+    const animationfs = romhandler.getRom()!.getAnimationFS();
     for (let i = 0; i < animImgData.length; i++) {
       animationfs.writeAnimationBackground(
         setIndex,
@@ -608,6 +604,7 @@ export class MP2Adapter extends AdapterBase {
         const imgBuffer = toArrayBuffer(srcImage, 64, 48);
 
         // First, read the old image pack.
+        const mainfs = romhandler.getRom()?.getMainFS()!;
         const oldPack = mainfs.get(9, boardSelectImg!);
 
         // Then, pack the image and write it.
@@ -635,7 +632,7 @@ export class MP2Adapter extends AdapterBase {
     const bgInfo = this._readImgInfoFromMainFS(9, 15, 0);
     const [x, y] = boardInfo.img.boardSelectIconCoords;
     const icon = cutFromWhole(
-      bgInfo.src!,
+      imgInfoSrcToArrayBuffer(bgInfo.src!),
       bgInfo.width,
       bgInfo.height,
       32,
@@ -692,7 +689,7 @@ export class MP2Adapter extends AdapterBase {
           // Draw the original onto a canvas
           const canvasCtx = createContext(bgInfo.width, bgInfo.height);
           const origImageData = arrayBufferToImageData(
-            bgInfo.src!,
+            imgInfoSrcToArrayBuffer(bgInfo.src!),
             bgInfo.width,
             bgInfo.height,
           );
@@ -712,6 +709,7 @@ export class MP2Adapter extends AdapterBase {
           ).data.buffer;
 
           // Read the old image pack.
+          const mainfs = romhandler.getRom()?.getMainFS()!;
           const oldPack = mainfs.get(9, 15);
 
           // Then, pack the image and write it.
@@ -806,6 +804,7 @@ export class MP2Adapter extends AdapterBase {
         return;
       }
 
+      const mainfs = romhandler.getRom()?.getMainFS()!;
       const srcImage = createImage();
       const failTimer = setTimeout(
         () => reject(`Failed to write logos for ${boardInfo.name}`),
@@ -867,6 +866,7 @@ export class MP2Adapter extends AdapterBase {
     canvasCtx.putImageData(imgData, 0, -10);
 
     const imgDataShifted = canvasCtx.getImageData(0, 0, 320, 240);
+    const hvqfs = romhandler.getRom()!.getHVQFS();
     hvqfs.writeBackground(bgIndex, imgDataShifted, 320, 240);
     clearTimeout(failTimer);
   }

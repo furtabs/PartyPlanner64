@@ -2,12 +2,9 @@
 
 import { View, Action, EventCodeLanguage } from "../../packages/lib/types";
 import {
-  getAdditionalBackgroundCode,
   setAdditionalBackgroundCode,
-  getAudioSelectCode,
   setAudioSelectCode,
   _makeDefaultBoard,
-  IBoard,
 } from "./boards";
 import * as React from "react";
 import { createRoot } from "react-dom/client";
@@ -34,7 +31,7 @@ import { ToolWindow } from "./toolwindow";
 import { Toolbar } from "./toolbar";
 import { SpaceProperties } from "./spaceproperties";
 import { BoardProperties } from "./boardproperties";
-import "../../packages/lib/utils/onbeforeunload";
+import "./utils/onbeforeunload";
 import "../../packages/lib/events/builtin/events.include";
 import "file-saver";
 import { DebugView } from "./views/debug";
@@ -52,6 +49,7 @@ import {
   clearUndoHistory,
 } from "./appControl";
 import { Blocker } from "./components/blocker";
+import { ClangCompileProgressBar } from "./components/ClangCompileProgress";
 import { killEvent } from "./utils/react";
 import {
   getDefaultAdditionalBgCode,
@@ -107,8 +105,16 @@ import {
 } from "../../packages/lib/events/customevents";
 import { setEventLibraryImplementation } from "../../packages/lib/events/EventLibrary";
 import { ReduxEventLibrary } from "./events/ReduxEventLibrary";
-import { fixPotentiallyOldBoard } from "../../packages/lib/boards";
+import {
+  fixPotentiallyOldBoard,
+  getAdditionalBackgroundCode,
+  getAudioSelectCode,
+  IBoard,
+} from "../../packages/lib/boards";
+import { setWebCanvasImplementation } from "./utils/canvas";
+import { preloadImages } from "./images";
 import BoardBrowserPage from "./views/BoardBrowserPage";
+
 
 /* eslint-disable jsx-a11y/anchor-is-valid */
 
@@ -349,6 +355,7 @@ function PP64AppInternal(props: PP64AppInternalProps) {
           <div id="dragZone"></div>
         </div>
       </div>
+      <ClangCompileProgressBar />
       <PP64Blocker />
     </div>
   );
@@ -395,7 +402,7 @@ function usePP64Hotkeys(): void {
     },
     {
       enabled: allowUndoRedo,
-      enableOnTags: ["INPUT", "SELECT"],
+      enableOnFormTags: ["INPUT", "SELECT"],
     },
   );
 
@@ -406,7 +413,7 @@ function usePP64Hotkeys(): void {
     },
     {
       enabled: allowUndoRedo,
-      enableOnTags: ["INPUT", "SELECT"],
+      enableOnFormTags: ["INPUT", "SELECT"],
     },
   );
 }
@@ -533,6 +540,9 @@ function initializeState(): void {
 
   clearUndoHistory();
 }
+
+setWebCanvasImplementation();
+preloadImages();
 
 const body = document.getElementById("body");
 const root = createRoot(body!);

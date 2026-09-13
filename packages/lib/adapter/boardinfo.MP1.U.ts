@@ -1,11 +1,9 @@
 import { createBoardInfo } from "./boardinfobase";
-import { IBoard } from "../../../apps/partyplanner64/boards";
-import { hvqfs } from "../fs/hvqfs";
-import { strings } from "../fs/strings";
 import { arrayToArrayBuffer } from "../utils/arrays";
-import { scenes } from "../fs/scenes";
 import { toPack } from "../utils/img/ImgPack";
-import { mainfs } from "../fs/mainfs";
+import { romhandler } from "../romhandler";
+import { strToBytes } from "../fs/strings";
+import { IBoard } from "../boards";
 
 // DK's Jungle Adventure - (U) ROM
 const MP1_USA_DK = createBoardInfo("MP1_USA_DK", {
@@ -41,6 +39,7 @@ const MP1_USA_DK = createBoardInfo("MP1_USA_DK", {
   },
 
   onLoad: function (board: IBoard) {
+    const hvqfs = romhandler.getRom()!.getHVQFS();
     board.otherbg.largescene = hvqfs.readBackground(MP1_USA_DK.bgDir + 1).src;
     board.otherbg.conversation = hvqfs.readBackground(MP1_USA_DK.bgDir + 2).src;
     board.otherbg.splashscreen = hvqfs.readBackground(MP1_USA_DK.bgDir + 6).src;
@@ -48,6 +47,7 @@ const MP1_USA_DK = createBoardInfo("MP1_USA_DK", {
 
   onAfterOverwrite: function () {
     // Remove the "box" from the game start scenery.
+    const scenes = romhandler.getRom()!.getScenes();
     const introSceneView = scenes.getDataView(98);
     introSceneView.setUint32(0x7098, 0xc57a0000); // 0x2A9598 // Some random float to get it away
     introSceneView.setUint32(0x709c, 0); // 0x2A959C
@@ -55,10 +55,9 @@ const MP1_USA_DK = createBoardInfo("MP1_USA_DK", {
 
     // Make Bowser's event text a bit more generic.
     let bytes: number[] = [];
+    const strings = romhandler.getRom()!.getStrings();
     bytes = bytes.concat(
-      strings._strToBytes(
-        "You're looking for Stars?\nHow about this instead...",
-      ),
+      strToBytes("You're looking for Stars?\nHow about this instead..."),
     );
     bytes.push(0xff); // PAUSE
     bytes.push(0x00); // Null byte
@@ -107,6 +106,7 @@ const MP1_USA_PEACH = createBoardInfo("MP1_USA_PEACH", {
   goombaSpaceInst: 0x900, // 0x00245EC0
 
   onLoad: function (board: IBoard) {
+    const hvqfs = romhandler.getRom()!.getHVQFS();
     board.otherbg.largescene = hvqfs.readBackground(
       MP1_USA_PEACH.bgDir + 1,
     ).src;
@@ -120,6 +120,7 @@ const MP1_USA_PEACH = createBoardInfo("MP1_USA_PEACH", {
 
   onAfterOverwrite: function (board: IBoard) {
     // Text banner that appears over the logo
+    const mainfs = romhandler.getRom()?.getMainFS()!;
     const oldPack = mainfs.get(10, 360);
     const imgInfoArr = [
       { src: new ArrayBuffer(250 * 50 * 4), width: 250, height: 50, bpp: 32 },
@@ -157,6 +158,7 @@ const MP1_USA_YOSHI = createBoardInfo("MP1_USA_YOSHI", {
   // spaceEventsEndOffset: 0x00248EE4;
 
   onLoad: function (board: IBoard) {
+    const hvqfs = romhandler.getRom()!.getHVQFS();
     board.otherbg.largescene = hvqfs.readBackground(
       MP1_USA_YOSHI.bgDir + 1,
     ).src;
@@ -170,6 +172,7 @@ const MP1_USA_YOSHI = createBoardInfo("MP1_USA_YOSHI", {
 
   onAfterOverwrite: function (board: IBoard) {
     // Text banner that appears over the logo
+    const mainfs = romhandler.getRom()?.getMainFS()!;
     const oldPack = mainfs.get(10, 363);
     const imgInfoArr = [
       { src: new ArrayBuffer(208 * 40 * 4), width: 208, height: 40, bpp: 32 },
@@ -215,6 +218,7 @@ const MP1_USA_WARIO = createBoardInfo("MP1_USA_WARIO", {
   toadSpaceArrOffset: [0x3250, 0x3270], // [0x0024C150, 0x0024C170]
 
   onLoad: function (board: IBoard) {
+    const hvqfs = romhandler.getRom()!.getHVQFS();
     board.otherbg.largescene = hvqfs.readBackground(
       MP1_USA_WARIO.bgDir + 1,
     ).src;
@@ -228,6 +232,7 @@ const MP1_USA_WARIO = createBoardInfo("MP1_USA_WARIO", {
 
   onAfterOverwrite: function (board: IBoard) {
     // Text banner that appears over the logo
+    const mainfs = romhandler.getRom()?.getMainFS()!;
     const oldPack = mainfs.get(10, 366);
     const imgInfoArr = [
       { src: new ArrayBuffer(280 * 76 * 4), width: 280, height: 76, bpp: 32 },

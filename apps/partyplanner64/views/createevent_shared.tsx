@@ -19,6 +19,7 @@ import {
 import { CustomAsmHelper } from "../../../packages/lib/events/customevents";
 import { IEventParameter } from "../../../packages/lib/events/events";
 import { ToggleGroup, Button, ToggleButton } from "../controls";
+import { CCompilerToggle } from "./settings";
 
 import deleteImage from "../img/events/delete.png";
 
@@ -203,6 +204,16 @@ export class EventDetailsForm extends React.Component<IEventDetailsFormProps> {
           allowDeselect={false}
           onToggleClick={this.props.onExecTypeToggleClicked}
         />
+        {this.props.language === EventCodeLanguage.C && (
+          <>
+            <br />
+            <label>C Compiler:</label>
+            <CCompilerToggle />
+            <div className="cCompilerLegacyHint">
+              Clang is the default. SmallerC is only for legacy scripts.
+            </div>
+          </>
+        )}
         <br />
         <label>Parameters:</label>
         <EventParametersList

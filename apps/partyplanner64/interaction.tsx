@@ -6,13 +6,9 @@ import {
 } from "../../packages/lib/utils/number";
 import {
   getCurrentBoard,
-  ISpace,
   addSpace,
-  getSpacesOfType,
-  IBoard,
   currentBoardIsROM,
   removeSpace,
-  getSpaceIndex,
   addConnection,
   setSpaceRotation,
   copyCurrentBoard,
@@ -31,7 +27,6 @@ import {
   getSelectedSpaces,
   getValidSelectedSpaceIndices,
 } from "./appControl";
-import { getMouseCoordsOnCanvas } from "../../packages/lib/utils/canvas";
 import {
   addSelectedSpaceAction,
   eraseConnectionsAction,
@@ -45,6 +40,13 @@ import {
 } from "./boardState";
 import { store } from "./store";
 import { isEmpty } from "../../packages/lib/utils/obj";
+import {
+  getSpaceIndex,
+  getSpacesOfType,
+  IBoard,
+  ISpace,
+} from "../../packages/lib/boards";
+import { getMouseCoordsOnCanvas } from "./utils/canvas";
 
 let spaceWasMouseDownedOn = false;
 let startX = -1;

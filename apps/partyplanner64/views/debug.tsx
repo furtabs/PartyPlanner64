@@ -15,12 +15,9 @@ import {
   findStrings,
   findStrings3,
 } from "../../../packages/lib/utils/dump";
-import { scenes, ISceneInfo } from "../../../packages/lib/fs/scenes";
+import { ISceneInfo } from "../../../packages/lib/fs/scenes";
 import { $$hex } from "../../../packages/lib/utils/debug";
-import { strings3 } from "../../../packages/lib/fs/strings3";
-import { strings } from "../../../packages/lib/fs/strings";
 import { saveAs } from "file-saver";
-import { mainfs } from "../../../packages/lib/fs/mainfs";
 import { makeDivisibleBy } from "../../../packages/lib/utils/number";
 import { romToRAM } from "../../../packages/lib/utils/offsets";
 
@@ -284,8 +281,10 @@ export const DebugView = class DebugView extends React.Component<
         return;
       }
 
+      const strings3 = romhandler.getRom()!.getStrings3();
       result = strings3.read("en", dirIndex, strIndex, raw);
     } else {
+      const strings = romhandler.getRom()!.getStrings();
       result = strings.read(strIndex, raw);
     }
 
@@ -308,6 +307,7 @@ export const DebugView = class DebugView extends React.Component<
     let result = "";
     const num = parseInt(this.state.romToRamNumber, 16);
     if (!isNaN(num)) {
+      const scenes = romhandler.getRom()!.getScenes();
       const sceneCount = scenes.count();
       for (let i = 0; i < sceneCount; i++) {
         const info = scenes.getInfo(i);
@@ -343,6 +343,7 @@ export const DebugView = class DebugView extends React.Component<
     let result = "";
     const dir = parseInt(this.state.mainfsToRomDir, 10);
     const file = parseInt(this.state.mainfsToRomIndex, 10);
+    const mainfs = romhandler.getRom()?.getMainFS()!;
     if (!isNaN(dir) && !isNaN(file)) {
       let currentOffset = mainfs.getROMOffset()!;
 
@@ -379,6 +380,7 @@ export const DebugView = class DebugView extends React.Component<
   };
 
   private findInMainFS(num: number): string {
+    const mainfs = romhandler.getRom()?.getMainFS()!;
     const mainfsOffset = mainfs.getROMOffset()!;
     const writeDecompressed = !!get($setting.writeDecompressed);
     const mainfsSize = mainfs.getByteLength(writeDecompressed);
@@ -412,6 +414,7 @@ export const DebugView = class DebugView extends React.Component<
       this.clearSceneValues();
       return;
     }
+    const scenes = romhandler.getRom()!.getScenes();
     const sceneInfo = scenes.getInfo(sceneIndex);
     if (!sceneInfo) {
       this.clearSceneValues();
@@ -450,8 +453,12 @@ export const DebugView = class DebugView extends React.Component<
   onOverlayDownloadClick = () => {
     const num = parseInt(this.state.sceneIndex);
     if (!isNaN(num)) {
+      const scenes = romhandler.getRom()!.getScenes();
       const dataView = scenes.getDataView(num);
-      saveAs(new Blob([dataView]), `overlay-${num}.bin`);
+      saveAs(
+        new Blob([dataView as DataView<ArrayBuffer>]),
+        `overlay-${num}.bin`,
+      );
     }
   };
 
@@ -477,6 +484,7 @@ export const DebugView = class DebugView extends React.Component<
           bss_end: parseInt(this.state.sceneBssEndAddr, 16),
         };
 
+        const scenes = romhandler.getRom()!.getScenes();
         scenes.replace(sceneIndex, reader.result as ArrayBuffer, infoValues);
       };
       reader.readAsArrayBuffer(file);

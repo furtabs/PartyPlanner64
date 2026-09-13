@@ -27,7 +27,7 @@ export interface IFormObj extends IFormObjDict {
 }
 
 interface IFormObjEntry {
-  raw: ArrayBuffer;
+  raw: ArrayBufferLike;
   parsed?: any;
 }
 
@@ -72,7 +72,7 @@ interface IPAL1Parsed {
 
 // Extracts a FORM file into a usable format.
 export const FORM = class FORM {
-  static unpack(formView: ArrayBuffer | DataView): IFormObj | null {
+  static unpack(formView: ArrayBufferLike | DataView): IFormObj | null {
     if (!(formView instanceof DataView)) formView = new DataView(formView);
 
     if (!FORM.isForm(formView)) return null;
@@ -156,7 +156,7 @@ export const FORM = class FORM {
     return formBuffer;
   }
 
-  static isForm(viewOrBuffer: ArrayBuffer | DataView) {
+  static isForm(viewOrBuffer: ArrayBufferLike | DataView) {
     if (!viewOrBuffer) return false;
 
     if (!(viewOrBuffer instanceof DataView))
@@ -178,7 +178,7 @@ export const FORM = class FORM {
     return byteLen + 8; // Add the "FORM____" at the beginning.
   }
 
-  static parseType(type: IFormObjType, raw: ArrayBuffer) {
+  static parseType(type: IFormObjType, raw: ArrayBufferLike) {
     switch (type) {
       case "HBINMODE":
         return FORM.parseHBINMODE(raw);
@@ -205,7 +205,7 @@ export const FORM = class FORM {
     return null;
   }
 
-  static parseHBINMODE(raw: ArrayBuffer) {
+  static parseHBINMODE(raw: ArrayBufferLike) {
     const rawView = new DataView(raw);
     const result = {
       E: rawView.getUint8(0x14),
@@ -220,7 +220,7 @@ export const FORM = class FORM {
     return result;
   }
 
-  static parseOBJ1(raw: ArrayBuffer) {
+  static parseOBJ1(raw: ArrayBufferLike) {
     const rawView = new DataView(raw);
     const result: any = {
       objects: [],
@@ -335,7 +335,7 @@ export const FORM = class FORM {
     };
   }
 
-  static parseCOL1(raw: ArrayBuffer) {
+  static parseCOL1(raw: ArrayBufferLike) {
     const rawView = new DataView(raw);
     const colors = [];
     const colorCount = rawView.getUint16(0);
@@ -347,7 +347,7 @@ export const FORM = class FORM {
     return colors;
   }
 
-  static parseMAT1(raw: ArrayBuffer) {
+  static parseMAT1(raw: ArrayBufferLike) {
     const rawView = new DataView(raw);
     const result: { materials: any[] } = {
       materials: [],
@@ -369,7 +369,7 @@ export const FORM = class FORM {
     return result;
   }
 
-  static parseATR1(raw: ArrayBuffer) {
+  static parseATR1(raw: ArrayBufferLike) {
     const rawView = new DataView(raw);
     const result: { atrs: any[] } = {
       atrs: [],
@@ -393,7 +393,7 @@ export const FORM = class FORM {
     return result;
   }
 
-  static parseVTX1(raw: ArrayBuffer) {
+  static parseVTX1(raw: ArrayBufferLike) {
     const rawView = new DataView(raw);
     const result: IVTXParsed = {
       vertices: [],
@@ -417,7 +417,7 @@ export const FORM = class FORM {
     return result;
   }
 
-  static parseFAC1(raw: ArrayBuffer) {
+  static parseFAC1(raw: ArrayBufferLike) {
     const rawView = new DataView(raw);
     const result: any = {
       faces: [],
@@ -471,7 +471,7 @@ export const FORM = class FORM {
     return result;
   }
 
-  static parsePAL1(raw: ArrayBuffer) {
+  static parsePAL1(raw: ArrayBufferLike) {
     const rawView = new DataView(raw);
     const result: IPAL1Parsed = {
       colors: [],
@@ -494,7 +494,7 @@ export const FORM = class FORM {
     return result;
   }
 
-  static parseSKL1(raw: ArrayBuffer) {
+  static parseSKL1(raw: ArrayBufferLike) {
     const rawView = new DataView(raw);
 
     const sklCount = rawView.getUint8(2);
@@ -520,7 +520,7 @@ export const FORM = class FORM {
     return result;
   }
 
-  static parseSTRG(raw: ArrayBuffer) {
+  static parseSTRG(raw: ArrayBufferLike) {
     const rawView = new DataView(raw);
     const strings = [];
     const strCount = rawView.getUint16(0);
@@ -537,7 +537,7 @@ export const FORM = class FORM {
     return strings;
   }
 
-  static parseBMP(raw: ArrayBuffer, PAL1: any) {
+  static parseBMP(raw: ArrayBufferLike, PAL1: any) {
     const rawView = new DataView(raw);
     const format = rawView.getUint16(0x2);
     const width = rawView.getUint16(0x05);

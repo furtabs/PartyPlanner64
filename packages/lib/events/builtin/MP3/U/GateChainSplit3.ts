@@ -1,7 +1,3 @@
-import {
-  IEventInstance,
-  addConnection,
-} from "../../../../../../apps/partyplanner64/boards";
 import { IEventParseInfo, IEventWriteInfo, IEvent } from "../../../events";
 import {
   EditorEventActivationType,
@@ -10,6 +6,7 @@ import {
 } from "../../../../types";
 import { hashEqual } from "../../../../utils/arrays";
 import { addEventToLibrary } from "../../../EventLibrary";
+import { addConnectionInternal, IEventInstance } from "../../../../boards";
 
 // Oh look, more ChainSplits!
 // This is a ChainSplit where one path leads to a gate.
@@ -44,7 +41,7 @@ export const GateChainSplit: IEvent = {
 
     let destinationSpace = dataView.getUint16(spacesOffset);
     while (destinationSpace !== 0xffff) {
-      addConnection(info.curSpace, destinationSpace, info.board);
+      addConnectionInternal(info.curSpace, destinationSpace, info.board);
       spacesOffset += 2;
       destinationSpace = dataView.getUint16(spacesOffset);
     }

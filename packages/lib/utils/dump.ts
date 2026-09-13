@@ -2,12 +2,12 @@ import { $$log, $$hex } from "./debug";
 import { arrayBufferToDataURL, toHexString } from "./arrays";
 import { print } from "mips-inst";
 import { pad } from "./string";
-import { fromPack } from "./img/ImgPack";
+import {
+  fromPack,
+  imgInfoSrcToArrayBuffer,
+  imgInfoSrcToDataView,
+} from "./img/ImgPack";
 import { fromTiles } from "./img/tiler";
-import { mainfs } from "../fs/mainfs";
-import { strings3 } from "../fs/strings3";
-import { strings } from "../fs/strings";
-import { scenes } from "../fs/scenes";
 import { romhandler } from "../romhandler";
 import { FORM } from "../models/FORM";
 import { MTNX } from "../models/MTNX";
@@ -23,6 +23,7 @@ export function create(callback: (blob: Blob) => any) {
   const zip = new JSZip();
 
   const mainfsfolder = zip.folder("mainfs")!;
+  const mainfs = romhandler.getRom()?.getMainFS()!;
   const mainfsDirCount = mainfs.getDirectoryCount();
   for (let d = 0; d < mainfsDirCount; d++) {
     const dirFolder = mainfsfolder.folder(d.toString())!;
@@ -32,7 +33,7 @@ export function create(callback: (blob: Blob) => any) {
       let name = f.toString();
       if (FORM.isForm(file)) name += ".form";
       else if (MTNX.isMtnx(file)) name += ".mtnx";
-      dirFolder.file(name, file);
+      dirFolder.file(name, file as ArrayBuffer);
     }
   }
 
@@ -53,6 +54,7 @@ export function load(buffer: ArrayBuffer, onError: (error: unknown) => void) {
         if (isNaN(d) || isNaN(f)) return;
         file.async("arraybuffer").then((content: ArrayBuffer) => {
           $$log(`Overwriting MainFS ${d}/${f}`);
+          const mainfs = romhandler.getRom()?.getMainFS()!;
           mainfs.write(d, f, content);
         });
       });
@@ -70,6 +72,7 @@ export function images() {
   const game = romhandler.getROMGame()!;
 
   const mainfsfolder = zip.folder("mainfs")!;
+  const mainfs = romhandler.getRom()?.getMainFS()!;
   const mainfsDirCount = mainfs.getDirectoryCount();
   for (let d = 0; d < mainfsDirCount; d++) {
     const dirFolder = mainfsfolder.folder(d.toString())!;
@@ -162,7 +165,7 @@ export function images() {
         const imgs = _readImgsFromMainFS(d, f)!;
         imgs.forEach((imgInfo, idx) => {
           const dataUri = arrayBufferToDataURL(
-            imgInfo.src!,
+            imgInfoSrcToArrayBuffer(imgInfo.src!),
             imgInfo.width,
             imgInfo.height,
           );
@@ -205,7 +208,7 @@ export function images() {
     if (!imgArr || !imgArr.length) return;
 
     const dataViews = imgArr.map((imgInfo) => {
-      return new DataView(imgInfo.src!);
+      return imgInfoSrcToDataView(imgInfo.src!);
     });
 
     return dataViews;
@@ -222,6 +225,7 @@ export function images() {
 
 // Dump out all the FORM bitmaps.
 export function formImages() {
+  const mainfs = romhandler.getRom()?.getMainFS()!;
   const mainfsDirCount = mainfs.getDirectoryCount();
   for (let d = 0; d < mainfsDirCount; d++) {
     const dirFileCount = mainfs.getFileCount(d);
@@ -248,6 +252,7 @@ export function formImages() {
 }
 
 export function findStrings3(searchStr = "", raw = false) {
+  const strings3 = romhandler.getRom()!.getStrings3();
   const dirCount = strings3.getDirectoryCount("en");
   for (let d = 0; d < dirCount; d++) {
     const strCount = strings3.getStringCount("en", d);
@@ -264,6 +269,7 @@ export function findStrings3(searchStr = "", raw = false) {
 }
 
 export function findStrings(searchStr = "", raw = false) {
+  const strings = romhandler.getRom()!.getStrings();
   const strCount = strings.getStringCount();
   for (let s = 0; s < strCount; s++) {
     const str = strings.read(s) as string;
@@ -280,6 +286,7 @@ export function saveWaluigi() {
 
   (window as any).waluigiParts = [];
   for (let f = 0; f < 163; f++) {
+    const mainfs = romhandler.getRom()?.getMainFS()!;
     (window as any).waluigiParts.push(mainfs.get(8, f));
   }
 
@@ -299,6 +306,7 @@ export function writeWaluigi(character = 1) {
   }
 
   for (let i = 0; i < (window as any).waluigiParts.length; i++) {
+    const mainfs = romhandler.getRom()?.getMainFS()!;
     mainfs.write(character, i, (window as any).waluigiParts[i]);
   }
 }
@@ -307,6 +315,7 @@ export function saveDaisy() {
   if (romhandler.getGameVersion() !== 3)
     throw new Error(`Daisy is not in game ${romhandler.getGameVersion()}`);
 
+  const mainfs = romhandler.getRom()?.getMainFS()!;
   (window as any).daisyParts = [];
   (window as any).daisyParts.push(mainfs.get(9, 1));
   (window as any).daisyParts.push(mainfs.get(9, 3));
@@ -321,6 +330,7 @@ export function writeDaisy(character = 6) {
   if (!(window as any).daisyParts)
     throw new Error("Need to call saveDaisy first!");
 
+  const mainfs = romhandler.getRom()?.getMainFS()!;
   mainfs.write(character, 158, (window as any).daisyParts[0]);
   mainfs.write(character, 159, (window as any).daisyParts[1]);
 }
@@ -376,11 +386,13 @@ export function searchForPatchLocations(offset: number) {
 }
 
 export function printSceneTable() {
-  if (!romhandler.romIsLoaded()) {
+  const rom = romhandler.getRom();
+  if (!rom) {
     console.log("ROM is not loaded");
     return;
   }
 
+  const scenes = rom.getScenes();
   const sceneCount = scenes.count();
   const table = [];
   for (let i = 0; i < sceneCount; i++) {
@@ -389,11 +401,11 @@ export function printSceneTable() {
       i: $$hex(i),
       rom_start: $$hex(info.rom_start),
       rom_end: $$hex(info.rom_end),
-      //ram_start: $$hex(),
+      ram_start: $$hex(info.ram_start),
       code_start: $$hex(info.code_start),
-      //code_end: $$hex(),
+      code_end: $$hex(info.code_end),
       rodata_start: $$hex(info.rodata_start),
-      //rodata_end: $$hex(),
+      rodata_end: $$hex(info.rodata_end),
       bss_start: $$hex(info.bss_start),
       bss_end: $$hex(info.bss_end),
     });
@@ -404,11 +416,13 @@ export function printSceneTable() {
 
 /** Prints the overlay table in n64split format. */
 export function printSceneN64Split() {
-  if (!romhandler.romIsLoaded()) {
+  const rom = romhandler.getRom();
+  if (!rom) {
     console.log("ROM is not loaded");
     return;
   }
 
+  const scenes = rom.getScenes();
   const sceneCount = scenes.count();
   const strings = [];
   for (let i = 0; i < sceneCount; i++) {
@@ -436,11 +450,13 @@ export function printSceneN64Split() {
 
 /** Prints the overlay table in n64splat format. */
 export function printSceneN64Splat() {
-  if (!romhandler.romIsLoaded()) {
+  const rom = romhandler.getRom();
+  if (!rom) {
     console.log("ROM is not loaded");
     return;
   }
 
+  const scenes = rom.getScenes();
   const sceneCount = scenes.count();
   const strings = [];
   for (let i = 0; i < sceneCount; i++) {
@@ -489,6 +505,13 @@ export function printAsm(start: number, end: number) {
  * @param {number} sceneIndex
  */
 export function printSceneAsm(sceneIndex: number) {
+  const rom = romhandler.getRom();
+  if (!rom) {
+    console.log("ROM is not loaded");
+    return;
+  }
+
+  const scenes = rom.getScenes();
   const sceneInfo = scenes.getInfo(sceneIndex);
   let currentAsmAddr = sceneInfo.code_start;
   const codeDataView = scenes.getCodeDataView(sceneIndex);

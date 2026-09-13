@@ -1,20 +1,5 @@
 import { romhandler } from "../romhandler";
 import { getBoardInfos, getBoardInfoByIndex } from "./boardinfo";
-import { hvqfs } from "../fs/hvqfs";
-import { mainfs } from "../fs/mainfs";
-import { audio } from "../fs/audio";
-import {
-  IBoard,
-  addEventByIndex,
-  getConnections,
-  getSpacesOfSubType,
-  ISpace,
-  IEventInstance,
-  getDeadSpace,
-  getDeadSpaceIndex,
-  BoardAudioType,
-  addEventToSpaceInternal,
-} from "../../../apps/partyplanner64/boards";
 import { copyObject } from "../utils/obj";
 import {
   determineChains,
@@ -31,7 +16,7 @@ import {
 } from "../types";
 import { $$log, $$hex, assert } from "../utils/debug";
 import { getSymbol } from "../symbols/symbols";
-import { scenes, ISceneInfo } from "../fs/scenes";
+import { ISceneInfo } from "../fs/scenes";
 import { findCalls, getRegSetAddress } from "../utils/MIPS";
 import { SpaceEventTable } from "./eventtable";
 import { SpaceEventList } from "./eventlist";
@@ -49,7 +34,12 @@ import { assemble } from "mips-assembler";
 import { createContext, createImage } from "../utils/canvas";
 import { toArrayBuffer } from "../utils/image";
 import { RGBA5551fromRGBA32 } from "../utils/img/RGBA5551";
-import { toPack, fromPack } from "../utils/img/ImgPack";
+import {
+  toPack,
+  fromPack,
+  imgInfoSrcToDataView,
+  imgInfoSrcToArrayBuffer,
+} from "../utils/img/ImgPack";
 import { arrayBufferToDataURL, dataUrlToArrayBuffer } from "../utils/arrays";
 import {
   makeGameSymbolLabels,
@@ -62,7 +52,7 @@ import { ChainSplit1 } from "../events/builtin/MP1/U/ChainSplit1";
 import { ChainMerge } from "../events/builtin/ChainMergeEvent";
 import { StarEvent, Gate, GateClose } from "../events/builtin/events.common";
 import { ChainSplit2 } from "../events/builtin/MP2/U/ChainSplit2";
-import { isDebug } from "../../../apps/partyplanner64/debug";
+import { isDebug } from "../debug";
 import { getImageData } from "../utils/img/getImageData";
 import { createGameMidi } from "../audio/midi";
 import { getEventsInLibrary } from "../events/EventLibrary";
@@ -72,7 +62,19 @@ import {
 } from "../events/additionalbg";
 import { makeAudioSymbolLabels } from "../events/getaudiochoice";
 
-import bootsplashImage from "../../../apps/partyplanner64/img/bootsplash.png";
+import bootsplashImage from "../img/bootsplash.png";
+import {
+  addEventToSpaceInternal,
+  BoardAudioType,
+  getConnections,
+  getSpacesOfSubType,
+  IBoard,
+  IEventInstance,
+  ISpace,
+  getDeadSpace,
+  getDeadSpaceIndex,
+  addEventByIndex,
+} from "../boards";
 
 export interface IAdapterOptions {
   writeBranding?: boolean;
@@ -116,7 +118,8 @@ export abstract class AdapterBase {
 
   public loadBoards(): IBoard[] {
     const boards = [];
-    const game = romhandler.getROMGame()!;
+    const rom = romhandler.getRom()!;
+    const game = rom.getGame()!;
     const boardInfos = getBoardInfos(game);
     if (!boardInfos) {
       $$log(`Game ${game} has no board infos defined in PP64`);
@@ -128,6 +131,7 @@ export abstract class AdapterBase {
 
       const boardInfo = boardInfos[i];
       const bgDir = boardInfo.bgDir;
+      const hvqfs = rom.getHVQFS();
       const background = hvqfs.readBackground(bgDir);
 
       let newBoard: IBoard;
@@ -144,6 +148,7 @@ export abstract class AdapterBase {
           otherbg: {},
           events: {},
         };
+        const mainfs = rom.getMainFS()!;
         const boardBuffer = mainfs.get(
           this.boardDefDirectory,
           boardInfo.boardDefFile,
@@ -182,6 +187,7 @@ export abstract class AdapterBase {
 
     if (isDebug()) {
       // Debug if audio offsets are right.
+      const audio = rom.getAudio();
       const audioSectionCount = audio.getPatchInfo().length;
       for (let i = 0; i < audioSectionCount; i++) audio.getROMOffset(i);
     }
@@ -216,6 +222,7 @@ export abstract class AdapterBase {
     this._reversePerspective(boardCopy);
 
     const boarddef = createBoardDef(boardCopy, chains);
+    const mainfs = romhandler.getRom()?.getMainFS()!;
     mainfs.write(this.boardDefDirectory, boardInfo.boardDefFile, boarddef);
 
     this._createGateEvents(boardCopy, boardInfo, chains);
@@ -247,6 +254,7 @@ export abstract class AdapterBase {
     this._clearOtherBoardNames(boardIndex);
     this._stashBoardIntoRom(board, boardInfo); // Don't use the boardCopy here
 
+    const hvqfs = romhandler.getRom()!.getHVQFS();
     hvqfs.updateMetadata(boardInfo.bgDir, boardCopy.bg);
 
     if (boardInfo.onAfterOverwrite) boardInfo.onAfterOverwrite(boardCopy);
@@ -285,6 +293,7 @@ export abstract class AdapterBase {
     //   throw new Error(``);
     // }
 
+    const scenes = romhandler.getRom()?.getScenes()!;
     const sceneInfo = scenes.getInfo(boardInfo.sceneIndex!);
     const eventSyms: string = this._makeSymbolsForEventAssembly(
       outSyms,
@@ -470,6 +479,7 @@ export abstract class AdapterBase {
    */
   _offsetToAddr(offset: number, boardInfo: IBoardInfo) {
     if (typeof boardInfo.sceneIndex === "number" && boardInfo.sceneIndex >= 0) {
+      const scenes = romhandler.getRom()?.getScenes()!;
       const sceneInfo = scenes.getInfo(boardInfo.sceneIndex);
       if (offset < sceneInfo.rom_start) {
         // This is an offset that is already relative to the scene.
@@ -502,6 +512,7 @@ export abstract class AdapterBase {
     const boardJsonBuffer = stringToArrayBuffer(JSON.stringify(boardCopy));
 
     const [dir, file] = boardInfo.mainfsBoardFile;
+    const mainfs = romhandler.getRom()?.getMainFS()!;
     mainfs.write(dir, file, boardJsonBuffer);
   }
 
@@ -509,6 +520,7 @@ export abstract class AdapterBase {
     if (!boardInfo.mainfsBoardFile) return null;
 
     const [dir, file] = boardInfo.mainfsBoardFile;
+    const mainfs = romhandler.getRom()?.getMainFS()!;
     if (!mainfs.has(dir, file)) return null;
 
     const boardJsonBuffer = mainfs.get(dir, file);
@@ -534,8 +546,10 @@ export abstract class AdapterBase {
     if (typeof boardInfo.sceneIndex !== "number" || boardInfo.sceneIndex < 0)
       return;
 
-    const game = romhandler.getROMGame()!;
+    const rom = romhandler.getRom()!;
+    const game = rom.getGame()!;
     const hydrateEventTableAddr = getSymbol(game, "EventTableHydrate");
+    const scenes = rom.getScenes();
     const sceneInfo = scenes.getInfo(boardInfo.sceneIndex);
     const boardCodeDataView = scenes.getCodeDataView(boardInfo.sceneIndex);
     const tableCalls = findCalls(boardCodeDataView, hydrateEventTableAddr);
@@ -570,11 +584,12 @@ export abstract class AdapterBase {
 
     // PP64 sometimes stores board ASM in the main filesystem. We need to
     // be able to parse both that or the stock boards.
-    let buffer: ArrayBuffer | undefined;
+    let buffer: ArrayBufferLike | undefined;
     let bufferView: DataView | undefined;
     const eventTable = new SpaceEventTable();
     if (boardInfo.mainfsEventFile) {
       const [mainFsDir, mainFsFile] = boardInfo.mainfsEventFile;
+      const mainfs = romhandler.getRom()?.getMainFS()!;
       if (mainfs.has(mainFsDir, mainFsFile)) {
         buffer = mainfs.get(mainFsDir, mainFsFile);
         bufferView = new DataView(buffer);
@@ -583,6 +598,7 @@ export abstract class AdapterBase {
       }
     }
 
+    const scenes = romhandler.getRom()?.getScenes()!;
     const sceneInfo = scenes.getInfo(boardInfo.sceneIndex);
     if (!buffer) {
       bufferView = scenes.getDataView(boardInfo.sceneIndex);
@@ -1101,6 +1117,7 @@ ${eventAsmCombinedString}
     // We write list blob of ASM/structures into the MainFS, in a location
     // that is not used by the game.
     const [mainFsDir, mainFsFile] = boardInfo.mainfsEventFile;
+    const mainfs = romhandler.getRom()?.getMainFS()!;
     mainfs.write(mainFsDir, mainFsFile, buffer);
 
     //saveAs(new Blob([buffer]), "eventBuffer");
@@ -1144,6 +1161,7 @@ ${eventAsmCombinedString}
     // AKA Toads or Baby Bowsers lol
     if (!boardInfo.sceneIndex) return;
 
+    const scenes = romhandler.getRom()!.getScenes();
     const sceneView = scenes.getDataView(boardInfo.sceneIndex);
 
     // Training writes the toad directly.
@@ -1180,6 +1198,7 @@ ${eventAsmCombinedString}
   _writeStarInfo(board: IBoard, boardInfo: IBoardInfo) {
     const starCount = boardInfo.starSpaceCount;
     if (starCount) {
+      const scenes = romhandler.getRom()!.getScenes();
       const sceneView = scenes.getDataView(boardInfo.sceneIndex!);
 
       const starIndices = [];
@@ -1235,6 +1254,7 @@ ${eventAsmCombinedString}
   _extractBoos(board: IBoard, boardInfo: IBoardInfo) {
     if (!boardInfo.sceneIndex) return;
 
+    const scenes = romhandler.getRom()!.getScenes();
     const sceneView = scenes.getDataView(boardInfo.sceneIndex);
     let booSpace;
     if (boardInfo.boosLoopFnOffset) {
@@ -1286,6 +1306,7 @@ ${eventAsmCombinedString}
     // Find the boo spaces
     const booSpaces = getSpacesOfSubType(SpaceSubtype.BOO, board);
 
+    const scenes = romhandler.getRom()!.getScenes();
     const sceneView = scenes.getDataView(boardInfo.sceneIndex);
     if (boardInfo.boosLoopFnOffset) {
       let booFnOffset = boardInfo.boosLoopFnOffset;
@@ -1340,6 +1361,7 @@ ${eventAsmCombinedString}
   _extractBanks(board: IBoard, boardInfo: IBoardInfo) {
     if (!boardInfo.bankCount || !boardInfo.sceneIndex) return;
 
+    const scenes = romhandler.getRom()!.getScenes();
     const sceneView = scenes.getDataView(boardInfo.sceneIndex);
     const bankArrOffset = boardInfo.bankArrOffset!;
     for (let b = 0; b < bankArrOffset.length; b++) {
@@ -1365,6 +1387,7 @@ ${eventAsmCombinedString}
   _writeBanks(board: IBoard, boardInfo: IBoardInfo) {
     if (!boardInfo.bankCount || !boardInfo.sceneIndex) return;
 
+    const scenes = romhandler.getRom()!.getScenes();
     const sceneView = scenes.getDataView(boardInfo.sceneIndex);
     const bankSpaces = getSpacesOfSubType(SpaceSubtype.BANK, board);
     const bankArrOffset = boardInfo.bankArrOffset!;
@@ -1397,6 +1420,7 @@ ${eventAsmCombinedString}
   _extractItemShops(board: IBoard, boardInfo: IBoardInfo) {
     if (!boardInfo.itemShopCount || !boardInfo.sceneIndex) return;
 
+    const scenes = romhandler.getRom()!.getScenes();
     const sceneView = scenes.getDataView(boardInfo.sceneIndex);
     for (let b = 0; b < boardInfo.itemShopArrOffset!.length; b++) {
       let curItemShopSpaceIndexOffset = boardInfo.itemShopArrOffset![b];
@@ -1412,6 +1436,7 @@ ${eventAsmCombinedString}
   _writeItemShops(board: IBoard, boardInfo: IBoardInfo) {
     if (!boardInfo.itemShopCount || !boardInfo.sceneIndex) return;
 
+    const scenes = romhandler.getRom()!.getScenes();
     const sceneView = scenes.getDataView(boardInfo.sceneIndex);
     const itemShopSpaces = getSpacesOfSubType(SpaceSubtype.ITEMSHOP, board);
     for (let b = 0; b < boardInfo.itemShopArrOffset!.length; b++) {
@@ -1431,6 +1456,7 @@ ${eventAsmCombinedString}
   _writeGates(board: IBoard, boardInfo: IBoardInfo) {
     if (!boardInfo.gateCount || !boardInfo.sceneIndex) return;
 
+    const scenes = romhandler.getRom()!.getScenes();
     const sceneView = scenes.getDataView(boardInfo.sceneIndex);
     const gateSpaces = [];
     for (let i = 0; i < board.spaces.length; i++) {
@@ -1458,6 +1484,7 @@ ${eventAsmCombinedString}
     height: number,
   ): Promise<void> {
     const imgData = await getImageData(src, width, height);
+    const hvqfs = romhandler.getRom()!.getHVQFS();
     hvqfs.writeBackground(bgIndex, imgData, width, height);
   }
 
@@ -1484,6 +1511,7 @@ ${eventAsmCombinedString}
 
     await Promise.all(bgPromises);
 
+    const hvqfs = romhandler.getRom()!.getHVQFS();
     for (const imgData of bgImgData) {
       // Append each one to the end of the hvq fs.
       hvqfs.writeBackground(
@@ -1553,6 +1581,7 @@ ${eventAsmCombinedString}
         ];
         const newPack = toPack(imgInfoArr, 16, 8);
         //saveAs(new Blob([newPack]));
+        const mainfs = romhandler.getRom()?.getMainFS()!;
         mainfs.write(
           this.hudsonLogoFSEntry![0],
           this.hudsonLogoFSEntry![1],
@@ -1567,6 +1596,7 @@ ${eventAsmCombinedString}
   }
 
   _combineSplashcreenLogos() {
+    const mainfs = romhandler.getRom()?.getMainFS()!;
     const nintendoPack = mainfs.get(
       this.nintendoLogoFSEntry![0],
       this.nintendoLogoFSEntry![1],
@@ -1581,8 +1611,8 @@ ${eventAsmCombinedString}
     const nintendoImgInfo = fromPack(nintendoPack)[0];
     const hudsonImgInfo = fromPack(hudsonPack)[0];
 
-    const nintendoArr = new Uint8Array(nintendoImgInfo.src!);
-    const hudsonArr = new Uint8Array(hudsonImgInfo.src!);
+    const nintendoArr = new Uint8Array(nintendoImgInfo.src! as ArrayBuffer);
+    const hudsonArr = new Uint8Array(hudsonImgInfo.src! as ArrayBuffer);
 
     const comboCanvasCtx = createContext(320, 240);
     comboCanvasCtx.fillStyle = "black";
@@ -1626,18 +1656,20 @@ ${eventAsmCombinedString}
   }
 
   _readPackedFromMainFS(dir: number, file: number) {
+    const mainfs = romhandler.getRom()?.getMainFS()!;
     const imgPackBuffer = mainfs.get(dir, file);
     const imgArr = fromPack(imgPackBuffer);
     if (!imgArr || !imgArr.length) return;
 
     const dataViews = imgArr.map((imgInfo) => {
-      return new DataView(imgInfo.src!);
+      return imgInfoSrcToDataView(imgInfo.src!);
     });
 
     return dataViews;
   }
 
   _readImgsFromMainFS(dir: number, file: number) {
+    const mainfs = romhandler.getRom()?.getMainFS()!;
     const imgPackBuffer = mainfs.get(dir, file);
     const imgArr = fromPack(imgPackBuffer);
     if (!imgArr || !imgArr.length) return;
@@ -1652,12 +1684,14 @@ ${eventAsmCombinedString}
 
   _readImgFromMainFS(dir: number, file: number, imgArrIndex: number) {
     const imgInfo = this._readImgInfoFromMainFS(dir, file, imgArrIndex);
-    return arrayBufferToDataURL(imgInfo.src!, imgInfo.width, imgInfo.height);
+    const arrayBuffer = imgInfoSrcToArrayBuffer(imgInfo.src!);
+    return arrayBufferToDataURL(arrayBuffer, imgInfo.width, imgInfo.height);
   }
 
   _parseAudio(board: IBoard, boardInfo: IBoardInfo) {
     if (!boardInfo.audioIndexOffset || !boardInfo.sceneIndex) return;
 
+    const scenes = romhandler.getRom()!.getScenes();
     const sceneView = scenes.getDataView(boardInfo.sceneIndex);
     board.audioIndex = sceneView.getUint16(boardInfo.audioIndexOffset);
   }
@@ -1675,6 +1709,7 @@ ${eventAsmCombinedString}
     switch (board.audioType) {
       case BoardAudioType.Custom:
         {
+          const audio = romhandler.getRom()!.getAudio();
           const seqTable = audio.getSequenceTable(0)!;
           assert(!!seqTable);
           for (const audioEntry of board.audioData!) {

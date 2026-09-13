@@ -1,12 +1,5 @@
 import { AdapterBase } from "./AdapterBase";
 import {
-  IBoard,
-  ISpace,
-  getConnections,
-  addEventByIndex,
-  addEventToSpaceInternal,
-} from "../../../apps/partyplanner64/boards";
-import {
   Space,
   BoardType,
   SpaceSubtype,
@@ -16,15 +9,11 @@ import {
 } from "../types";
 import { $$log } from "../utils/debug";
 import { createEventInstance, EventMap } from "../events/events";
-import { strings } from "../fs/strings";
 import { arrayToArrayBuffer } from "../utils/arrays";
-import { strings3 } from "../fs/strings3";
 import { toArrayBuffer } from "../utils/image";
-import { mainfs } from "../fs/mainfs";
 import { toPack } from "../utils/img/ImgPack";
 import { BMPfromRGBA } from "../utils/img/BMP";
 import { FORM } from "../models/FORM";
-import { scenes } from "../fs/scenes";
 import { SpaceEventList } from "./eventlist";
 import { IBoardInfo } from "./boardinfobase";
 import { ChainSplit3 } from "../events/builtin/MP3/U/ChainSplit3";
@@ -35,9 +24,18 @@ import { createBoardOverlay } from "./MP3.U.boardoverlay";
 import { getSoundEffectMapMP3 } from "./MP3.U.soundeffects";
 import { getImageData } from "../utils/img/getImageData";
 import { getEventsInLibrary } from "../events/EventLibrary";
-
-import genericgateImage from "../../../apps/partyplanner64/img/assets/genericgate.png";
 import { createImage } from "../utils/canvas";
+import { romhandler } from "../romhandler";
+import { strToBytes } from "../fs/strings";
+import {
+  IBoard,
+  ISpace,
+  getConnections,
+  addEventToSpaceInternal,
+  addEventByIndex,
+} from "../boards";
+
+import genericgateImage from "../img/genericgate.png";
 
 export class MP3Adapter extends AdapterBase {
   public gameVersion: 1 | 2 | 3 = 3;
@@ -80,6 +78,7 @@ export class MP3Adapter extends AdapterBase {
 
     // gamemasterplc: patch both ROM address 0x50DA60 and 0x50DA80 with the value 0x24020001 to fix character unlocks
     // gamemasterplc: aka MIPS Instruction ADDIU V0, R0, 0x1
+    const scenes = romhandler.getRom()!.getScenes();
     const playerSelectScene = scenes.getDataView(120);
     playerSelectScene.setUint32(0xbe60, 0x24020001); // 0x50DA60
     playerSelectScene.setUint32(0xbe80, 0x24020001); // 0x50DA80
@@ -508,6 +507,7 @@ export class MP3Adapter extends AdapterBase {
       if (!Array.isArray(strs.boardSelect))
         throw new Error("Expected number[][]");
       const idx = strs.boardSelect[0] as number[];
+      const strings3 = romhandler.getRom()!.getStrings3();
       const str = strings3.read("en", idx[0], idx[1]) as string;
       const lines = str.split("\n");
 
@@ -530,13 +530,14 @@ export class MP3Adapter extends AdapterBase {
 
   onWriteStrings(board: IBoard, boardInfo: IBoardInfo) {
     const strs = boardInfo.str || {};
+    const strings3 = romhandler.getRom()!.getStrings3();
     const boardSelect = strs.boardSelect as number[][];
     if (boardSelect && boardSelect.length) {
       let bytes = [];
       bytes.push(0x0b); // Clear?
       bytes.push(0x05); // Start GREEN
       bytes.push(0x0f); // ?
-      bytes = bytes.concat(strings._strToBytes(board.name || ""));
+      bytes = bytes.concat(strToBytes(board.name || ""));
       bytes.push(0x16);
       bytes.push(0x19);
       bytes.push(0x0f);
@@ -544,23 +545,21 @@ export class MP3Adapter extends AdapterBase {
       bytes.push(0x16);
       bytes.push(0x03);
       bytes.push(0x0f);
-      bytes = bytes.concat(strings._strToBytes("Difficulty: "));
+      bytes = bytes.concat(strToBytes("Difficulty: "));
       const star = 0x3b;
       if (board.difficulty > 5 || board.difficulty < 1) {
         // Hackers!
         bytes.push(star);
-        bytes = bytes.concat(strings._strToBytes(" "));
+        bytes = bytes.concat(strToBytes(" "));
         bytes.push(0x3e); // Little x
-        bytes = bytes.concat(
-          strings._strToBytes(" " + board.difficulty.toString()),
-        );
+        bytes = bytes.concat(strToBytes(" " + board.difficulty.toString()));
       } else {
         for (let i = 0; i < board.difficulty; i++) bytes.push(star);
       }
       bytes.push(0x16);
       bytes.push(0x19);
       bytes.push(0x0a); // \n
-      bytes = bytes.concat(strings._strToBytes(board.description || "")); // Assumes \n's are correct within.
+      bytes = bytes.concat(strToBytes(board.description || "")); // Assumes \n's are correct within.
       bytes.push(0x00); // Null byte
 
       let strBuffer = arrayToArrayBuffer(bytes);
@@ -583,12 +582,12 @@ export class MP3Adapter extends AdapterBase {
     if (strs.boardGreeting) {
       let bytes = [];
       bytes.push(0x0b);
-      bytes = bytes.concat(strings._strToBytes("You're all here!"));
+      bytes = bytes.concat(strToBytes("You're all here!"));
       bytes.push(0x0a); // \n
       bytes = bytes.concat(this._createBoardGreetingBase(board.name));
       bytes.push(0x0b); // ?
       bytes = bytes.concat(
-        strings._strToBytes(
+        strToBytes(
           "Now, before we begin, we need\nto determine the turn order.",
         ),
       );
@@ -608,14 +607,14 @@ export class MP3Adapter extends AdapterBase {
     if (strs.boardGreetingDuel) {
       let bytes = [];
       bytes.push(0x0b);
-      bytes = bytes.concat(strings._strToBytes("I've been waiting for you, "));
+      bytes = bytes.concat(strToBytes("I've been waiting for you, "));
       bytes.push(0x11); // ?
       bytes.push(0xc2); // ?
       bytes.push(0x0a); // \n
       bytes = bytes.concat(this._createBoardGreetingBase(board.name));
       bytes.push(0x0b); // ?
       bytes = bytes.concat(
-        strings._strToBytes("And just as promised, if you win here..."),
+        strToBytes("And just as promised, if you win here..."),
       );
       bytes.push(0x19); // ?
       bytes.push(0xff); // ?
@@ -633,7 +632,7 @@ export class MP3Adapter extends AdapterBase {
     if (strs.boardNames && strs.boardNames.length) {
       let bytes = [];
       bytes.push(0x0b);
-      bytes = bytes.concat(strings._strToBytes(board.name));
+      bytes = bytes.concat(strToBytes(board.name));
       bytes.push(0x00); // Null byte
       const strBuffer = arrayToArrayBuffer(bytes);
 
@@ -645,10 +644,11 @@ export class MP3Adapter extends AdapterBase {
   }
 
   _createBoardGreetingBase(boardName: string) {
-    let bytes = strings._strToBytes("Welcome to the legendary ");
+    const strings = romhandler.getRom()!.getStrings();
+    let bytes = strToBytes("Welcome to the legendary ");
     bytes.push(0x05); // Start GREEN
     bytes.push(0x0f); // ?
-    bytes = bytes.concat(strings._strToBytes(boardName));
+    bytes = bytes.concat(strToBytes(boardName));
     bytes.push(0x16); // ?
     bytes.push(0x19); // ?
     bytes.push(0xc2); // ?
@@ -656,7 +656,7 @@ export class MP3Adapter extends AdapterBase {
     bytes.push(0xff); // ?
     bytes.push(0x0b); // ?
     bytes = bytes.concat(
-      strings._strToBytes("Here, you'll battle to become\nthe Superstar."),
+      strToBytes("Here, you'll battle to become\nthe Superstar."),
     );
     bytes.push(0x19); // ?
     bytes.push(0xff); // ?
@@ -690,6 +690,7 @@ export class MP3Adapter extends AdapterBase {
         const imgBuffer = toArrayBuffer(srcImage, 64, 64);
 
         // First, read the old image pack.
+        const mainfs = romhandler.getRom()?.getMainFS()!;
         const oldPack = mainfs.get(20, boardSelectImg!);
 
         // Then, pack the image and write it.
@@ -755,6 +756,7 @@ export class MP3Adapter extends AdapterBase {
       : new ArrayBuffer(width * height * 4);
 
     // First, read the old image pack.
+    const mainfs = romhandler.getRom()?.getMainFS()!;
     const oldPack = mainfs.get(19, splashLogoImg);
 
     // Then, pack the image and write it.
@@ -788,6 +790,7 @@ export class MP3Adapter extends AdapterBase {
       : new ArrayBuffer(width * height * 4);
 
     // First, read the old image pack.
+    const mainfs = romhandler.getRom()?.getMainFS()!;
     const oldPack = mainfs.get(19, splashLogoTextImg);
 
     // Then, pack the image and write it.
@@ -820,6 +823,7 @@ export class MP3Adapter extends AdapterBase {
       ? (await getImageData(boardlogomedium, width, height)).data
       : new ArrayBuffer(width * height * 4);
 
+    const mainfs = romhandler.getRom()?.getMainFS()!;
     const oldPack = mainfs.get(19, pauseLogoImg);
     const imgInfoArr = [
       {
@@ -849,6 +853,7 @@ export class MP3Adapter extends AdapterBase {
       ? (await getImageData(boardlogosmall, width, height)).data
       : new ArrayBuffer(width * height * 4);
 
+    const mainfs = romhandler.getRom()?.getMainFS()!;
     const oldPack = mainfs.get(statsLogoImg[0], statsLogoImg[1]);
     const imgInfoArr = [
       {
@@ -881,6 +886,7 @@ export class MP3Adapter extends AdapterBase {
     const gateBmp = BMPfromRGBA(imgData.data.buffer, 32, 8);
 
     // Now write the BMP back into the FORM.
+    const mainfs = romhandler.getRom()?.getMainFS()!;
     const gateFORM = mainfs.get(19, 366); // Always use gate 3 as a base.
     const gateUnpacked = FORM.unpack(gateFORM)!;
     FORM.replaceBMP(gateUnpacked, 0, gateBmp[0], gateBmp[1]);

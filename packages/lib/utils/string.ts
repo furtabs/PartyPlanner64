@@ -1,3 +1,5 @@
+import { copyRange } from "./arrays";
+
 export function fromU32(u32: number) {
   return (
     String.fromCharCode((u32 & 0xff000000) >>> 24) +
@@ -27,7 +29,7 @@ export function toCharCodes(str: string) {
  * Converts a string to an ArrayBuffer.
  * @param str String to bufferize
  */
-export function stringToArrayBuffer(str: string): ArrayBuffer {
+export function stringToArrayBuffer(str: string): ArrayBufferLike {
   if (typeof TextEncoder !== "undefined") {
     return new TextEncoder().encode(str).buffer;
   }
@@ -42,9 +44,20 @@ export function stringToArrayBuffer(str: string): ArrayBuffer {
   return buffer;
 }
 
-export function stringFromArrayBuffer(buffer: ArrayBuffer): string {
+export function stringFromArrayBuffer(buffer: ArrayBufferLike): string {
   if (typeof TextDecoder !== "undefined") {
-    return new TextDecoder().decode(buffer);
+    let bufferForDecode: ArrayBuffer;
+    if (
+      typeof SharedArrayBuffer !== "undefined" &&
+      buffer instanceof SharedArrayBuffer
+    ) {
+      const nonSharedBuffer = new ArrayBuffer(buffer.byteLength);
+      copyRange(nonSharedBuffer, buffer, 0, 0, buffer.byteLength);
+      bufferForDecode = nonSharedBuffer;
+    } else {
+      bufferForDecode = buffer as ArrayBuffer;
+    }
+    return new TextDecoder().decode(bufferForDecode);
   }
 
   return String.fromCharCode.apply(null, new Uint16Array(buffer) as any);

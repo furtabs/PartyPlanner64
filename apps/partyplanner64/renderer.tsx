@@ -10,13 +10,7 @@ import {
   useContext,
   useLayoutEffect,
 } from "react";
-import {
-  ISpace,
-  IBoard,
-  getConnections,
-  getCurrentBoard,
-  IEventInstance,
-} from "./boards";
+import { getCurrentBoard } from "./boards";
 import {
   BoardType,
   Space,
@@ -34,9 +28,8 @@ import { RightClickMenu } from "./rightclick";
 import { attachToCanvas, detachFromCanvas } from "./interaction";
 import { getEvent } from "../../packages/lib/events/events";
 import { getDistinctColor } from "../../packages/lib/utils/colors";
-import { isDebug } from "./debug";
+import { isDebug } from "../../packages/lib/debug";
 import { takeScreeny } from "./screenshot";
-import { getMouseCoordsOnCanvas } from "../../packages/lib/utils/canvas";
 import { setOverrideBg } from "./appControl";
 import { useAppSelector, useCurrentBoard } from "./hooks";
 import {
@@ -50,7 +43,14 @@ import {
 } from "./boardState";
 import { isEmpty } from "../../packages/lib/utils/obj";
 import { getEventsInLibrary } from "../../packages/lib/events/EventLibrary";
-import { forEachEventParameter } from "../../packages/lib/boards";
+import {
+  forEachEventParameter,
+  getConnections,
+  IBoard,
+  IEventInstance,
+  ISpace,
+} from "../../packages/lib/boards";
+import { getMouseCoordsOnCanvas } from "./utils/canvas";
 
 type Canvas = HTMLCanvasElement;
 type CanvasContext = CanvasRenderingContext2D;

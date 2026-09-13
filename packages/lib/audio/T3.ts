@@ -44,7 +44,7 @@ import { ALSoundSimple } from "./ALSoundSimple";
 export class T3 {
   private __type = "T3";
 
-  public tbl!: ArrayBuffer;
+  public tbl!: ArrayBufferLike;
   public sounds: ALSoundSimple[] = [];
 
   constructor(dataView: DataView) {

@@ -1,11 +1,8 @@
 import { BoardType, CostumeType, View } from "../../../packages/lib/types";
 import {
   getCurrentBoard,
-  IBoard,
   boardIsROM,
   currentBoardIsROM,
-  BoardAudioType,
-  IBoardAudioData,
   setBoardName,
   setBoardDescription,
   setBoardDifficulty,
@@ -22,7 +19,6 @@ import { arrayBufferToDataURL } from "../../../packages/lib/utils/arrays";
 import { getAdapter } from "../../../packages/lib/adapter/adapters";
 import { changeView, promptUser, refresh, showMessage } from "../appControl";
 import { getImageData } from "../../../packages/lib/utils/img/getImageData";
-import { audio } from "../../../packages/lib/fs/audio";
 import { assert } from "../../../packages/lib/utils/debug";
 import { romhandler } from "../../../packages/lib/romhandler";
 import { $setting, get } from "./settings";
@@ -35,6 +31,11 @@ import audioImage from "../img/details/audio.png";
 import deleteImage from "../img/details/delete.png";
 import audioConfigImage from "../img/details/audioconfig.png";
 import { IToggleItem, ToggleGroup } from "../controls";
+import {
+  BoardAudioType,
+  IBoard,
+  IBoardAudioData,
+} from "../../../packages/lib/boards";
 
 type DetailsType =
   | "image"
@@ -728,7 +729,7 @@ class DetailsAudio extends React.Component<IDetailsAudioProps> {
       romhandler.romIsLoaded() &&
       romhandler.getGameVersion() === getCurrentBoard().game
     ) {
-      const seqTable = audio.getSequenceTable(0)!;
+      const seqTable = romhandler.getRom()!.getAudio().getSequenceTable(0)!;
       upperBound = seqTable.soundbanks.banks.length - 1;
     }
 

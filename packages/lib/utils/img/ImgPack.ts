@@ -1,6 +1,6 @@
 import { BMPtoRGBA, BMPfromRGBA } from "./BMP";
 import { GrayscaleToRGBA32 } from "./Grayscale";
-import { copyRange } from "../arrays";
+import { copyRange, isArrayBufferLike } from "../arrays";
 import { RGBA5551toRGBA32, RGBA5551fromRGBA32 } from "./RGBA5551";
 
 // Aside from raw RGB5551, there is also a format with a header followed by
@@ -36,16 +36,43 @@ import { RGBA5551toRGBA32, RGBA5551fromRGBA32 } from "./RGBA5551";
 //   s16 origin_y;
 // }
 
+type ImgInfoSrc = ArrayBufferLike | ImageDataArray;
+
 export interface IImgInfo {
   width: number;
   height: number;
-  src?: ArrayBuffer;
+  src?: ImgInfoSrc;
   _bmpData?: any;
   bpp?: number;
 }
 
+export function imgInfoSrcToArrayBuffer(
+  imgInfoSrc: ImgInfoSrc,
+): ArrayBufferLike {
+  if (isArrayBufferLike(imgInfoSrc)) {
+    return imgInfoSrc;
+  } else {
+    return imgInfoSrc.buffer.slice(
+      imgInfoSrc.byteOffset,
+      imgInfoSrc.byteOffset + imgInfoSrc.byteLength,
+    );
+  }
+}
+
+export function imgInfoSrcToDataView(imgInfoSrc: ImgInfoSrc): DataView {
+  if (isArrayBufferLike(imgInfoSrc)) {
+    return new DataView(imgInfoSrc);
+  } else {
+    return new DataView(
+      imgInfoSrc.buffer,
+      imgInfoSrc.byteOffset,
+      imgInfoSrc.byteLength,
+    );
+  }
+}
+
 // Rips each image from a ImgPack and returns an array of RGBA32.
-export function fromPack(buffer: ArrayBuffer) {
+export function fromPack(buffer: ArrayBufferLike) {
   // Read useful header values
   const inView = new DataView(buffer);
   const entryOffset = inView.getUint32(0);
@@ -116,7 +143,7 @@ export function toPack(
   imgInfoArr: IImgInfo[],
   outBpp: number,
   bmpBpp: number,
-  oldPack?: ArrayBuffer,
+  oldPack?: ArrayBufferLike,
 ) {
   let newPackSize = getByteLength(imgInfoArr, outBpp);
 
@@ -220,7 +247,12 @@ function _writeEntry(
   if (imgInfo._bmpData) {
     srcView = new DataView(imgInfo._bmpData);
   } else if (imgInfo.bpp === outBpp) {
-    srcView = new DataView(imgInfo.src!);
+    const src = imgInfo.src!;
+    if (isArrayBufferLike(src)) {
+      srcView = new DataView(src);
+    } else {
+      srcView = new DataView(src.buffer, src.byteOffset, src.byteLength);
+    }
   } else if (imgInfo.bpp === 32 && outBpp === 16) {
     const rgba16 = RGBA5551fromRGBA32(
       imgInfo.src!,

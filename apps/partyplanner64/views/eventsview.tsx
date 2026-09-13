@@ -7,10 +7,8 @@ import {
 } from "../../../packages/lib/events/customevents";
 import { changeCurrentEvent, changeView, confirmFromUser } from "../appControl";
 import {
-  IBoard,
   excludeEventFromBoard,
   includeEventInBoard,
-  getBoardEvent,
   getCurrentBoard,
 } from "../boards";
 import {
@@ -34,6 +32,7 @@ import copytoboardImage from "../img/events/copytoboard.png";
 import copytoboard_destructiveImage from "../img/events/copytoboard_destructive.png";
 
 import "../css/events.scss";
+import { getBoardEvent, IBoard } from "../../../packages/lib/boards";
 
 /** Custom events list view */
 export function EventsView() {

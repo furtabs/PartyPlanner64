@@ -353,7 +353,7 @@ export function decompress(
   return dstBuffer;
 }
 
-export function compress(type: number, srcDataView: DataView): ArrayBuffer {
+export function compress(type: number, srcDataView: DataView): ArrayBufferLike {
   switch (type) {
     case 1:
       return compress01(srcDataView);

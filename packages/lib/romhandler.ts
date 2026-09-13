@@ -1,11 +1,11 @@
-import { Game } from "./types";
-import { scenes } from "./fs/scenes";
-import { mainfs } from "./fs/mainfs";
-import { strings } from "./fs/strings";
-import { strings3 } from "./fs/strings3";
-import { hvqfs } from "./fs/hvqfs";
-import { audio } from "./fs/audio";
-import { animationfs } from "./fs/animationfs";
+import { Game, GameVersion } from "./types";
+import { Scenes } from "./fs/scenes";
+import { MainFS } from "./fs/mainfs";
+import { Strings } from "./fs/strings";
+import { Strings3 } from "./fs/strings3";
+import { HVQFS } from "./fs/hvqfs";
+import { Audio } from "./fs/audio";
+import { Animationfs } from "./fs/animationfs";
 import { makeDivisibleBy } from "./utils/number";
 import { copyRange } from "./utils/arrays";
 import { applyHook } from "./patches/gameshark/hook";
@@ -14,17 +14,50 @@ import { $$log } from "./utils/debug";
 import { getROMAdapter } from "./adapter/adapters";
 import { resetCheats } from "./patches/gameshark/cheats";
 
-// The ROM Handler handles the ROM... it holds the ROM buffer reference and
-// orchestrates ROM loading and saving via adapter code.
-export const romhandler = new (class RomHandler {
-  _rom: ArrayBuffer | null = null;
-  _u8array: Uint8Array | null = null;
-  _gameId: Game | null = null;
-  _gameVersion: number | null = null;
+/** Represents a loaded Mario Party ROM in memory. */
+export class ROM {
+  private _rom: ArrayBufferLike;
+  private _u8array: Uint8Array;
 
-  getROMGame(): Game | null {
-    if (!this._rom) return null;
+  private _scenes: Scenes | null = null;
+  private _mainfs: MainFS | null = null;
+  private _hvqfs: HVQFS | null = null;
+  private _audio: Audio | null = null;
+  private _strings: Strings | null = null;
+  private _strings3: Strings3 | null = null;
+  private _animationFS: Animationfs | null = null;
 
+  private _gameId: Game | null = null;
+  private _gameVersion: GameVersion | null = null;
+
+  public constructor(rom: ArrayBufferLike) {
+    this._rom = rom;
+    this._u8array = new Uint8Array(this._rom);
+    this.byteSwapIfNeeded();
+  }
+
+  public getBuffer(): ArrayBufferLike {
+    return this._rom;
+  }
+
+  public setBuffer(rom: ArrayBufferLike): void {
+    this._rom = rom;
+    this._u8array = new Uint8Array(this._rom);
+  }
+
+  public getDataView(startingOffset = 0, endOffset = 0): DataView {
+    if (!this._rom) throw new Error("ROM not loaded, cannot get DataView.");
+    if (endOffset) {
+      return new DataView(
+        this._rom,
+        startingOffset,
+        endOffset - startingOffset,
+      );
+    }
+    return new DataView(this._rom, startingOffset);
+  }
+
+  public getGame(): Game | null {
     if (this._gameId) return this._gameId as Game;
 
     if (this._rom.byteLength < 0x40) return null;
@@ -38,184 +71,10 @@ export const romhandler = new (class RomHandler {
     return this._gameId;
   }
 
-  getROMBuffer() {
-    return this._rom;
-  }
-
-  clear() {
-    this._rom = null;
-    this._u8array = null;
-    this._gameId = null;
-    this._gameVersion = null;
-
-    scenes.clearCache();
-    mainfs.clearCache();
-    strings.clear();
-    strings3.clear();
-    hvqfs.clearCache();
-    audio.clearCache();
-    animationfs.clearCache();
-  }
-
-  setROMBuffer(
-    buffer: ArrayBuffer | null,
-    skipSupportedCheck: boolean,
-    onError: (msg: string) => void,
-  ): Promise<boolean> {
-    if (!buffer) {
-      this.clear();
-      return Promise.resolve(false);
-    }
-
-    this._rom = buffer;
-    this._u8array = new Uint8Array(this._rom);
-
-    this.byteSwapIfNeeded();
-
-    if (!skipSupportedCheck && !this.romRecognized()) {
-      onError("File is not recognized as any valid ROM.");
-      this.clear();
-      return Promise.resolve(false);
-    }
-
-    if (!this.romSupported()) {
-      onError("This ROM is not supported right now.");
-      this.clear();
-      return Promise.resolve(false);
-    }
-
-    resetCheats();
-
-    const gameVersion = this.getGameVersion();
-
-    // A crude async attempt to hopefully free the UI thread a bit.
-    const promises = [];
-    promises.push(scenes.extractAsync());
-    promises.push(mainfs.extractAsync());
-    if (gameVersion === 3) promises.push(strings3.extractAsync());
-    else promises.push(strings.extractAsync());
-    promises.push(hvqfs.extractAsync());
-    promises.push(audio.extractAsync());
-    if (gameVersion === 2) promises.push(animationfs.extractAsync());
-
-    return Promise.all(promises).then(() => {
-      // Now that we've extracted, shrink _rom to just be the initial part of the ROM.
-      const ovlStart = scenes.getInfo(0);
-      this._rom = this._rom!.slice(0, ovlStart.rom_start);
-      return true;
-    });
-  }
-
-  saveROM(writeDecompressed: boolean): ArrayBuffer {
-    if (!this._rom) throw new Error("Cannot save ROM, buffer was not present");
-
-    const gameVersion = this.getGameVersion();
-
-    const initialLen = this._rom.byteLength;
-
-    // Grab all the sizes of the different sections.
-    const sceneLen = makeDivisibleBy(scenes.getByteLength(), 16);
-    const mainLen = makeDivisibleBy(
-      mainfs.getByteLength(writeDecompressed),
-      16,
-    );
-    let strsLen;
-    if (gameVersion === 3)
-      strsLen = makeDivisibleBy(strings3.getByteLength(), 16);
-    else strsLen = makeDivisibleBy(strings.getByteLength(), 16);
-    const hvqLen = makeDivisibleBy(hvqfs.getByteLength(), 16);
-    const audioLen = makeDivisibleBy(audio.getByteLength(), 16);
-    let animationLen = 0;
-    if (gameVersion === 2)
-      animationLen = makeDivisibleBy(animationfs.getByteLength(), 16);
-
-    // Seems to crash unless HVQ is aligned so that the +1 ADDIU trick is not needed. Just fudge strsLen to push it up.
-    while ((initialLen + sceneLen + mainLen + strsLen) & 0x8000) {
-      strsLen += 0x1000;
-    }
-
-    const newROMBuffer = new ArrayBuffer(
-      initialLen +
-        sceneLen +
-        mainLen +
-        strsLen +
-        hvqLen +
-        animationLen +
-        audioLen,
-    );
-
-    copyRange(newROMBuffer, this._rom, 0, 0, initialLen);
-
-    applyHook(newROMBuffer); // Before main fs is packed
-
-    mainfs.pack(newROMBuffer, writeDecompressed, initialLen + sceneLen);
-    mainfs.setROMOffset(initialLen + sceneLen, newROMBuffer);
-
-    if (gameVersion === 3) {
-      strings3.pack(newROMBuffer, initialLen + sceneLen + mainLen);
-      strings3.setROMOffset(initialLen + sceneLen + mainLen, newROMBuffer);
-    } else {
-      strings.pack(newROMBuffer, initialLen + sceneLen + mainLen);
-      strings.setROMOffset(initialLen + sceneLen + mainLen, newROMBuffer);
-    }
-
-    hvqfs.pack(newROMBuffer, initialLen + sceneLen + mainLen + strsLen);
-    hvqfs.setROMOffset(initialLen + mainLen + sceneLen + strsLen, newROMBuffer);
-
-    if (gameVersion === 2) {
-      animationfs.pack(
-        newROMBuffer,
-        initialLen + sceneLen + mainLen + strsLen + hvqLen,
-      );
-      animationfs.setROMOffset(
-        initialLen + sceneLen + mainLen + strsLen + hvqLen,
-        newROMBuffer,
-      );
-    }
-
-    audio.pack(
-      newROMBuffer,
-      initialLen + sceneLen + mainLen + strsLen + hvqLen + animationLen,
-    );
-    audio.setROMOffset(
-      initialLen + sceneLen + mainLen + strsLen + hvqLen + animationLen,
-      newROMBuffer,
-    );
-
-    // Do this last, so that any patches made to scenes just prior take effect.
-    scenes.pack(newROMBuffer, initialLen);
-
-    const adapter = getROMAdapter({})!;
-    if (adapter.onAfterSave) adapter.onAfterSave(new DataView(newROMBuffer));
-
-    fixChecksum(newROMBuffer);
-
-    this._rom = newROMBuffer.slice(0, initialLen);
-    this._u8array = new Uint8Array(this._rom);
-
-    return newROMBuffer;
-  }
-
-  romIsLoaded() {
-    return !!this._rom;
-  }
-
-  getDataView(startingOffset = 0, endOffset = 0) {
-    if (!this._rom) throw new Error("ROM not loaded, cannot get DataView.");
-    if (endOffset) {
-      return new DataView(
-        this._rom,
-        startingOffset,
-        endOffset - startingOffset,
-      );
-    }
-    return new DataView(this._rom, startingOffset);
-  }
-
-  getGameVersion() {
+  public getGameVersion(): GameVersion | null {
     if (this._gameVersion !== null) return this._gameVersion;
 
-    const gameID = this.getROMGame();
+    const gameID = this.getGame();
     if (!gameID) return null;
 
     switch (gameID) {
@@ -237,13 +96,13 @@ export const romhandler = new (class RomHandler {
     return null;
   }
 
-  romRecognized(): boolean {
+  public romRecognized(): boolean {
     return this.getGameVersion() !== null;
   }
 
-  romSupported(): boolean {
+  public romSupported(): boolean {
     let supported = false;
-    switch (this.getROMGame()) {
+    switch (this.getGame()) {
       case Game.MP1_USA:
       case Game.MP2_USA:
       case Game.MP3_USA:
@@ -252,7 +111,89 @@ export const romhandler = new (class RomHandler {
     return supported;
   }
 
-  byteSwapIfNeeded(): void {
+  public getScenes(): Scenes {
+    if (!this._scenes) {
+      throw new Error("ROM was not loaded");
+    }
+    return this._scenes;
+  }
+
+  public getMainFS(): MainFS {
+    if (!this._mainfs) {
+      throw new Error("ROM was not loaded");
+    }
+    return this._mainfs;
+  }
+
+  public getHVQFS(): HVQFS {
+    if (!this._hvqfs) {
+      throw new Error("ROM was not loaded");
+    }
+    return this._hvqfs;
+  }
+
+  public getAudio(): Audio {
+    if (!this._audio) {
+      throw new Error("ROM was not loaded");
+    }
+    return this._audio;
+  }
+
+  public getStrings(): Strings {
+    if (!this._strings) {
+      throw new Error("ROM was not loaded");
+    }
+    return this._strings;
+  }
+
+  public getStrings3(): Strings3 {
+    if (!this._strings3) {
+      throw new Error("ROM was not loaded");
+    }
+    return this._strings3;
+  }
+
+  public getAnimationFS(): Animationfs {
+    if (!this._animationFS) {
+      throw new Error("ROM was not loaded, or doesn't have animations");
+    }
+    return this._animationFS;
+  }
+
+  public async loadAsync(): Promise<boolean> {
+    const gameVersion = this.getGameVersion();
+
+    // A crude async attempt to hopefully free the UI thread a bit.
+    const promises = [];
+    this._scenes = new Scenes(this);
+    promises.push(this._scenes.extractAsync());
+    this._mainfs = new MainFS(this);
+    promises.push(this._mainfs.extractAsync());
+    if (gameVersion === 3) {
+      this._strings3 = new Strings3(this);
+      promises.push(this._strings3.extractAsync());
+    } else {
+      this._strings = new Strings(this);
+      promises.push(this._strings.extractAsync());
+    }
+    this._hvqfs = new HVQFS(this);
+    promises.push(this._hvqfs.extractAsync());
+    this._audio = new Audio(this);
+    promises.push(this._audio.extractAsync());
+    if (gameVersion === 2) {
+      this._animationFS = new Animationfs(this);
+      promises.push(this._animationFS.extractAsync());
+    }
+
+    await Promise.all(promises);
+
+    // Now that we've extracted, shrink _rom to just be the initial part of the ROM.
+    const ovlStart = this._scenes.getInfo(0);
+    this.setBuffer(this.getBuffer().slice(0, ovlStart.rom_start));
+    return true;
+  }
+
+  private byteSwapIfNeeded(): void {
     if (!this._rom || this._rom.byteLength < 4 || !this._u8array) return;
     const romView = this.getDataView();
     const magic = romView.getUint32(0);
@@ -293,4 +234,177 @@ export const romhandler = new (class RomHandler {
       }
     }
   }
-})();
+}
+
+/**
+ * The ROM Handler handles the ROM... it holds the ROM buffer reference and
+ * orchestrates ROM loading and saving via adapter code.
+ */
+class RomHandler {
+  _rom: ROM | null = null;
+
+  public getRom(): ROM | null {
+    return this._rom;
+  }
+
+  public getROMGame(): Game | null {
+    return this._rom?.getGame() ?? null;
+  }
+
+  public getROMBuffer(): ArrayBufferLike | null {
+    return this._rom?.getBuffer() ?? null;
+  }
+
+  public clear(): void {
+    this._rom = null;
+  }
+
+  setROMBuffer(
+    buffer: ArrayBufferLike | null,
+    skipSupportedCheck: boolean,
+    onError: (msg: string) => void,
+  ): Promise<boolean> {
+    if (!buffer) {
+      this.clear();
+      return Promise.resolve(false);
+    }
+
+    const rom = (this._rom = new ROM(buffer));
+
+    if (!rom.romRecognized()) {
+      onError("File is not recognized as any valid ROM.");
+      this.clear();
+      return Promise.resolve(false);
+    }
+
+    if (!skipSupportedCheck && !rom.romSupported()) {
+      onError("This ROM is not supported right now.");
+      this.clear();
+      return Promise.resolve(false);
+    }
+
+    resetCheats();
+
+    return rom.loadAsync();
+  }
+
+  saveROM(writeDecompressed: boolean): ArrayBufferLike {
+    const rom = this._rom;
+    if (!rom) throw new Error("Cannot save ROM, buffer was not present");
+
+    const gameVersion = this.getGameVersion();
+
+    const initialLen = rom.getBuffer().byteLength;
+
+    // Grab all the sizes of the different sections.
+    const sceneLen = makeDivisibleBy(rom.getScenes().getByteLength(), 16);
+    const mainLen = makeDivisibleBy(
+      rom.getMainFS().getByteLength(writeDecompressed),
+      16,
+    );
+    let strsLen;
+    if (gameVersion === 3)
+      strsLen = makeDivisibleBy(rom.getStrings3().getByteLength(), 16);
+    else strsLen = makeDivisibleBy(rom.getStrings().getByteLength(), 16);
+    const hvqLen = makeDivisibleBy(rom.getHVQFS().getByteLength(), 16);
+    const audioLen = makeDivisibleBy(rom.getAudio().getByteLength(), 16);
+    let animationLen = 0;
+    if (gameVersion === 2) {
+      animationLen = makeDivisibleBy(rom.getAnimationFS().getByteLength(), 16);
+    }
+
+    // Seems to crash unless HVQ is aligned so that the +1 ADDIU trick is not needed. Just fudge strsLen to push it up.
+    while ((initialLen + sceneLen + mainLen + strsLen) & 0x8000) {
+      strsLen += 0x1000;
+    }
+
+    const newROMBuffer = new ArrayBuffer(
+      initialLen +
+        sceneLen +
+        mainLen +
+        strsLen +
+        hvqLen +
+        animationLen +
+        audioLen,
+    );
+
+    copyRange(newROMBuffer, rom.getBuffer(), 0, 0, initialLen);
+
+    applyHook(newROMBuffer); // Before main fs is packed
+
+    const mainfs = rom.getMainFS();
+    mainfs.pack(newROMBuffer, writeDecompressed, initialLen + sceneLen);
+    mainfs.setROMOffset(initialLen + sceneLen, newROMBuffer);
+
+    if (gameVersion === 3) {
+      const strings3 = rom.getStrings3();
+      strings3.pack(newROMBuffer, initialLen + sceneLen + mainLen);
+      strings3.setROMOffset(initialLen + sceneLen + mainLen, newROMBuffer);
+    } else {
+      const strings = rom.getStrings();
+      strings.pack(newROMBuffer, initialLen + sceneLen + mainLen);
+      strings.setROMOffset(initialLen + sceneLen + mainLen, newROMBuffer);
+    }
+
+    const hvqfs = rom.getHVQFS();
+    hvqfs.pack(newROMBuffer, initialLen + sceneLen + mainLen + strsLen);
+    hvqfs.setROMOffset(initialLen + mainLen + sceneLen + strsLen, newROMBuffer);
+
+    if (gameVersion === 2) {
+      const animationfs = rom.getAnimationFS();
+      animationfs.pack(
+        newROMBuffer,
+        initialLen + sceneLen + mainLen + strsLen + hvqLen,
+      );
+      animationfs.setROMOffset(
+        initialLen + sceneLen + mainLen + strsLen + hvqLen,
+        newROMBuffer,
+      );
+    }
+
+    const audio = rom.getAudio();
+    audio.pack(
+      newROMBuffer,
+      initialLen + sceneLen + mainLen + strsLen + hvqLen + animationLen,
+    );
+    audio.setROMOffset(
+      initialLen + sceneLen + mainLen + strsLen + hvqLen + animationLen,
+      newROMBuffer,
+    );
+
+    // Do this last, so that any patches made to scenes just prior take effect.
+    rom.getScenes().pack(newROMBuffer, initialLen);
+
+    const adapter = getROMAdapter({})!;
+    if (adapter.onAfterSave) adapter.onAfterSave(new DataView(newROMBuffer));
+
+    fixChecksum(newROMBuffer);
+
+    rom.setBuffer(newROMBuffer.slice(0, initialLen));
+
+    return newROMBuffer;
+  }
+
+  romIsLoaded(): boolean {
+    return !!this._rom;
+  }
+
+  getDataView(startingOffset = 0, endOffset = 0): DataView {
+    if (!this._rom) throw new Error("ROM not loaded, cannot get DataView.");
+    return this._rom.getDataView(startingOffset, endOffset);
+  }
+
+  getGameVersion(): GameVersion | null {
+    return this._rom?.getGameVersion() ?? null;
+  }
+
+  romRecognized(): boolean {
+    return this._rom?.romRecognized() ?? false;
+  }
+
+  romSupported(): boolean {
+    return this._rom?.romSupported() ?? false;
+  }
+}
+
+export const romhandler = new RomHandler();

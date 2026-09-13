@@ -1,6 +1,6 @@
 import { ALSoundSimple } from "./ALSoundSimple";
 import { $$hex, $$log } from "../utils/debug";
-import { isDebug } from "../../../apps/partyplanner64/debug";
+import { isDebug } from "../debug";
 
 /**
  * SBF0 - Custom Sound Effects Format
@@ -55,7 +55,7 @@ import { isDebug } from "../../../apps/partyplanner64/debug";
 export class SBF0 {
   private __type = "SBF0";
 
-  public tbl!: ArrayBuffer;
+  public tbl!: ArrayBufferLike;
   public sounds: ALSoundSimple[] = [];
 
   constructor(dataView: DataView) {

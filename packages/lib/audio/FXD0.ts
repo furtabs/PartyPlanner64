@@ -2,7 +2,7 @@
 export class FXD0 {
   private __type = "FXD0";
 
-  public hunks!: ArrayBuffer[];
+  public hunks!: ArrayBufferLike[];
 
   constructor(dataView: DataView) {
     if (dataView.getUint32(0) !== 0x46584430)

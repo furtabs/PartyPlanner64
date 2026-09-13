@@ -5,14 +5,9 @@ import {
   addAnimBG,
   removeAnimBG,
   setBG,
-  IBoard,
-  getDeadEnds,
-  supportsAnimationBackgrounds,
-  supportsAdditionalBackgrounds,
   addAdditionalBG,
   removeAdditionalBG,
   boardIsROM,
-  IEventInstance,
   addEventToBoard,
   removeEventFromBoard,
 } from "./boards";
@@ -31,7 +26,7 @@ import {
   setOverrideBg,
 } from "./appControl";
 import { $setting, get } from "./views/settings";
-import { isDebug } from "./debug";
+import { isDebug } from "../../packages/lib/debug";
 import { SectionHeading } from "./propertiesshared";
 import { useForceUpdate } from "./utils/react";
 import { createEventInstance, IEvent } from "../../packages/lib/events/events";
@@ -48,6 +43,13 @@ import {
   setBoardEventEventParameterAction,
 } from "./boardState";
 import { useAppSelector, useCurrentBoard } from "./hooks";
+import {
+  getDeadEnds,
+  IBoard,
+  IEventInstance,
+  supportsAdditionalBackgrounds,
+  supportsAnimationBackgrounds,
+} from "../../packages/lib/boards";
 
 interface IBoardPropertiesProps {
   currentBoard: IBoard;

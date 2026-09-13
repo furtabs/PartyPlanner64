@@ -2,16 +2,14 @@ import { $$log, $$hex } from "../utils/debug";
 import { makeDivisibleBy } from "../utils/number";
 import { copyRange } from "../utils/arrays";
 import { Game } from "../types";
-import { romhandler } from "../romhandler";
+import { ROM, romhandler } from "../romhandler";
 import { getROMAdapter } from "../adapter/adapters";
-import { isDebug } from "../../../apps/partyplanner64/debug";
+import { isDebug } from "../debug";
 
 interface IOffsetInfo {
   upper: number;
   lower: number;
 }
-
-let _strFsInstance: StringTable | null;
 
 const _stringOffsets: { [game: string]: IOffsetInfo[] } = {};
 _stringOffsets[Game.MP1_USA] = [{ upper: 0x0001ae6e, lower: 0x0001ae76 }];
@@ -140,10 +138,17 @@ export class StringTable {
   }
 }
 
-export const strings = {
-  getROMOffset() {
+export class Strings {
+  private _rom: ROM;
+  private _strFsInstance: StringTable | null = null;
+
+  public constructor(rom: ROM) {
+    this._rom = rom;
+  }
+
+  public getROMOffset() {
     const romView = romhandler.getDataView();
-    const patchOffsets = strings.getPatchOffsets();
+    const patchOffsets = this.getPatchOffsets();
     if (!patchOffsets) return null;
     const romOffset = patchOffsets[0];
     if (!romOffset) return null;
@@ -164,11 +169,11 @@ export const strings = {
     }
 
     return offset;
-  },
+  }
 
-  setROMOffset(newOffset: number, buffer: ArrayBuffer) {
+  public setROMOffset(newOffset: number, buffer: ArrayBuffer) {
     const romView = new DataView(buffer);
-    const patchOffsets = strings.getPatchOffsets();
+    const patchOffsets = this.getPatchOffsets();
     let upper = (newOffset & 0xffff0000) >>> 16;
     const lower = newOffset & 0x0000ffff;
     if (lower & 0x8000) upper += 1; // Adjust for signed addition in ASM.
@@ -177,90 +182,88 @@ export const strings = {
       romView.setUint16(patchOffsets[i].lower, lower);
     }
     $$log(`Strings.setROMOffset -> ${$$hex((upper << 16) | lower)}`);
-  },
+  }
 
-  getPatchOffsets() {
+  public getPatchOffsets() {
     return _stringOffsets[romhandler.getROMGame()!];
-  },
+  }
 
-  StringTable: StringTable,
-
-  _strToBytes(str: string): number[] {
-    const map = getROMAdapter({})!.getCharacterMap();
-    const result = [];
-    let curIdx = 0;
-    const len = str.length;
-    while (curIdx < len) {
-      let lastMatchLen = 0;
-      let lastMatch: string | number;
-      for (const byte in map) {
-        if (!map.hasOwnProperty(byte)) continue;
-
-        const chars = map[byte];
-        if (str.substr(curIdx, chars.length) === chars) {
-          if (chars.length > lastMatchLen) {
-            lastMatchLen = chars.length;
-            lastMatch = byte;
-          }
-        }
-      }
-
-      if (lastMatchLen === 0) {
-        lastMatchLen = 1;
-        lastMatch = str.charCodeAt(curIdx);
-      }
-
-      if (typeof lastMatch! === "string") lastMatch = parseInt(lastMatch);
-
-      result.push(lastMatch!);
-      curIdx += lastMatchLen;
-    }
-
-    return result;
-  },
-
-  extract() {
-    const romOffset = strings.getROMOffset();
+  public extract() {
+    const romOffset = this.getROMOffset();
     if (romOffset === null) {
       return;
     }
     const view = romhandler.getDataView(romOffset);
-    return (_strFsInstance = new strings.StringTable(view));
-  },
+    return (this._strFsInstance = new StringTable(view));
+  }
 
-  extractAsync(): Promise<void> {
+  public extractAsync(): Promise<void> {
     return new Promise((resolve, reject) => {
-      strings.extract();
+      this.extract();
       resolve();
     });
-  },
+  }
 
-  pack(buffer: ArrayBuffer, offset = 0) {
-    return _strFsInstance!.pack(buffer, offset);
-  },
+  public pack(buffer: ArrayBuffer, offset = 0) {
+    return this._strFsInstance!.pack(buffer, offset);
+  }
 
   //read(index: number, raw: true): ArrayBuffer;
   //read(index: number, raw?: false): string;
   //read(index: number, raw: boolean): ArrayBuffer | string;
-  read(index: number, raw = false): ArrayBuffer | string {
-    return _strFsInstance!.read(index, raw);
-  },
+  public read(index: number, raw = false): ArrayBuffer | string {
+    return this._strFsInstance!.read(index, raw);
+  }
 
   // Writes a pre-made buffer for now.
-  write(index: number, content: ArrayBuffer) {
-    _strFsInstance!.write(index, content);
-  },
+  public write(index: number, content: ArrayBuffer) {
+    this._strFsInstance!.write(index, content);
+  }
 
-  clear() {
-    _strFsInstance = null;
-  },
+  public clear() {
+    this._strFsInstance = null;
+  }
 
-  getStringCount() {
-    return _strFsInstance!.getStringCount();
-  },
+  public getStringCount() {
+    return this._strFsInstance!.getStringCount();
+  }
 
   // Gets the required byte length of the string section of the ROM.
-  getByteLength() {
-    return _strFsInstance!.getByteLength();
-  },
-};
+  public getByteLength() {
+    return this._strFsInstance!.getByteLength();
+  }
+}
+
+export function strToBytes(str: string): number[] {
+  const map = getROMAdapter({})!.getCharacterMap();
+  const result = [];
+  let curIdx = 0;
+  const len = str.length;
+  while (curIdx < len) {
+    let lastMatchLen = 0;
+    let lastMatch: string | number;
+    for (const byte in map) {
+      if (!map.hasOwnProperty(byte)) continue;
+
+      const chars = map[byte];
+      if (str.substr(curIdx, chars.length) === chars) {
+        if (chars.length > lastMatchLen) {
+          lastMatchLen = chars.length;
+          lastMatch = byte;
+        }
+      }
+    }
+
+    if (lastMatchLen === 0) {
+      lastMatchLen = 1;
+      lastMatch = str.charCodeAt(curIdx);
+    }
+
+    if (typeof lastMatch! === "string") lastMatch = parseInt(lastMatch);
+
+    result.push(lastMatch!);
+    curIdx += lastMatchLen;
+  }
+
+  return result;
+}

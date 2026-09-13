@@ -7,12 +7,7 @@ import {
   IEventParameter,
 } from "../../../packages/lib/events/events";
 import { createCustomEvent } from "../../../packages/lib/events/customevents";
-import {
-  getBoardEvent,
-  getCurrentBoard,
-  IEventInstance,
-  IBoard,
-} from "../boards";
+import { getCurrentBoard } from "../boards";
 import { copyObject } from "../../../packages/lib/utils/obj";
 import {
   EventParameterType,
@@ -38,7 +33,12 @@ import { useForceUpdate } from "../utils/react";
 import { useCallback } from "react";
 import { useAppSelector } from "../hooks";
 import { selectEventLibrary } from "../boardState";
-import { isDebug } from "../debug";
+import { isDebug } from "../../../packages/lib/debug";
+import {
+  getBoardEvent,
+  IBoard,
+  IEventInstance,
+} from "../../../packages/lib/boards";
 
 interface IEventsListProps {
   events?: IEventInstance[];
@@ -735,10 +735,10 @@ class EventAdd extends React.Component<IEventAddProps, IEventAddState> {
 }
 
 function _getEventsForAddList() {
-  let libraryEvents = getAvailableEvents();
+  const board = getCurrentBoard();
+  let libraryEvents = getAvailableEvents(board);
 
   const boardEvents = [];
-  const board = getCurrentBoard();
   for (const eventName in board.events) {
     const boardEvent = getBoardEvent(board, eventName)!;
     boardEvents.push(createCustomEvent(boardEvent.language, boardEvent.code));

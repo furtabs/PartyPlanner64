@@ -6,13 +6,6 @@ import {
   EditorEventActivationType,
 } from "../types";
 import { copyObject } from "../utils/obj";
-import {
-  IBoard,
-  getCurrentBoard,
-  ISpace,
-  IEventInstance,
-  getBoardEvent,
-} from "../../../apps/partyplanner64/boards";
 import { romhandler } from "../romhandler";
 import {
   ICustomEvent,
@@ -21,6 +14,7 @@ import {
 } from "./customevents";
 import { getEventFromLibrary, getEventsInLibrary } from "./EventLibrary";
 import { IBoardInfo } from "../adapter/boardinfobase";
+import { IBoard, IEventInstance, ISpace, getBoardEvent } from "../boards";
 
 export type EventMap = { [id: string]: IEvent };
 
@@ -139,10 +133,10 @@ export function parse(romView: DataView, info: IEventParseInfo) {
   return false;
 }
 
-export function getAvailableEvents(): IEvent[] {
+export function getAvailableEvents(board: IBoard): IEvent[] {
   const events = [];
   const _events = getEventsInLibrary();
-  const curGameVersion = getCurrentBoard().game || 1;
+  const curGameVersion = board.game || 1;
   for (const id in _events) {
     const event = _events[id];
     if (

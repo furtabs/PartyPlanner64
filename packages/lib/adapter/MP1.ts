@@ -1,23 +1,14 @@
 import { AdapterBase } from "./AdapterBase";
-import {
-  ISpace,
-  addEventToSpaceInternal,
-  IBoard,
-  getDeadSpaceIndex,
-} from "../../../apps/partyplanner64/boards";
 import { Space, SpaceSubtype, GameVersion } from "../types";
 import { createEventInstance, EventMap } from "../events/events";
 import { parse as parseInst } from "mips-inst";
-import { strings } from "../fs/strings";
 import { arrayToArrayBuffer, arrayBufferToDataURL } from "../utils/arrays";
 import { fromTiles, toTiles } from "../utils/img/tiler";
 import { FORM } from "../models/FORM";
-import { mainfs } from "../fs/mainfs";
 import { BMPfromRGBA } from "../utils/img/BMP";
 import { toArrayBuffer } from "../utils/image";
 import { toPack } from "../utils/img/ImgPack";
 import { assemble } from "mips-assembler";
-import { scenes } from "../fs/scenes";
 import { createBoardOverlay } from "./MP1.U.boardoverlay";
 import { IBoardInfo } from "./boardinfobase";
 import { ChanceTime } from "../events/builtin/MP1/U/ChanceTimeEvent1";
@@ -27,6 +18,14 @@ import { getSoundEffectMapMP1 } from "./MP1.U.soundeffects";
 import { getEventsInLibrary } from "../events/EventLibrary";
 import { getAudioMapMP1 } from "./MP1.U.audio";
 import { createImage } from "../utils/canvas";
+import { romhandler } from "../romhandler";
+import { strToBytes } from "../fs/strings";
+import {
+  IBoard,
+  ISpace,
+  addEventToSpaceInternal,
+  getDeadSpaceIndex,
+} from "../boards";
 
 export class MP1Adapter extends AdapterBase {
   public gameVersion: GameVersion = 1;
@@ -72,7 +71,7 @@ export class MP1Adapter extends AdapterBase {
   }
 
   onAfterOverwrite(
-    romView: DataView,
+    romView: DataView<ArrayBuffer>,
     board: IBoard,
     boardInfo: IBoardInfo,
     boardIndex: number,
@@ -372,6 +371,7 @@ export class MP1Adapter extends AdapterBase {
       let idx = strs.boardSelect;
       if (Array.isArray(idx)) idx = idx[0] as number;
 
+      const strings = romhandler.getRom()!.getStrings();
       const str = strings.read(idx) as string;
       const lines = str.split("\n");
 
@@ -394,27 +394,26 @@ export class MP1Adapter extends AdapterBase {
 
   onWriteStrings(board: IBoard, boardInfo: IBoardInfo) {
     const strs = boardInfo.str || {};
+    const strings = romhandler.getRom()!.getStrings();
     if (strs.boardSelect) {
       let bytes = [];
       bytes.push(0x0b); // Clear?
       bytes.push(0x05); // Start GREEN
-      bytes = bytes.concat(strings._strToBytes(board.name || ""));
+      bytes = bytes.concat(strToBytes(board.name || ""));
       bytes.push(0x02); // Start DEFAULT
       bytes.push(0x0a); // \n
-      bytes = bytes.concat(strings._strToBytes(board.description || "")); // Assumes \n's are correct within.
+      bytes = bytes.concat(strToBytes(board.description || "")); // Assumes \n's are correct within.
       bytes.push(0x0a); // \n
       bytes = bytes.concat([0x10, 0x10, 0x10, 0x10, 0x10, 0x10]); // Spaces
       bytes.push(0x06); // Start BLUE
-      bytes = bytes.concat(strings._strToBytes("Map Difficulty  "));
+      bytes = bytes.concat(strToBytes("Map Difficulty  "));
       const star = 0x2a;
       if (board.difficulty > 5 || board.difficulty < 1) {
         // Hackers!
         bytes.push(star);
-        bytes = bytes.concat(strings._strToBytes(" "));
+        bytes = bytes.concat(strToBytes(" "));
         bytes.push(0x3e); // Little x
-        bytes = bytes.concat(
-          strings._strToBytes(" " + board.difficulty.toString()),
-        );
+        bytes = bytes.concat(strToBytes(" " + board.difficulty.toString()));
       } else {
         for (let i = 0; i < board.difficulty; i++) bytes.push(star);
       }
@@ -437,15 +436,11 @@ export class MP1Adapter extends AdapterBase {
     if (strs.koopaIntro) {
       let bytes: number[] = [];
       bytes = bytes.concat(
-        strings._strToBytes(
-          "Welcome, everybody!\nI am your guide,\nKoopa Troopa.",
-        ),
+        strToBytes("Welcome, everybody!\nI am your guide,\nKoopa Troopa."),
       );
       bytes.push(0xff); // PAUSE
       bytes.push(0x0b); // Clear?
-      bytes = bytes.concat(
-        strings._strToBytes("Now then,\nlet's decide turn order."),
-      );
+      bytes = bytes.concat(strToBytes("Now then,\nlet's decide turn order."));
       bytes.push(0xff); // PAUSE
       bytes.push(0x00); // Null byte
 
@@ -457,7 +452,7 @@ export class MP1Adapter extends AdapterBase {
     if (strs.starComments) {
       let bytes: number[] = [];
       bytes = bytes.concat(
-        strings._strToBytes(
+        strToBytes(
           "Good luck!\nWith enough stars, you\ncould be the superstar!",
         ),
       );
@@ -479,6 +474,7 @@ export class MP1Adapter extends AdapterBase {
   _extractKoopa(board: IBoard, boardInfo: IBoardInfo) {
     if (!boardInfo.koopaSpaceInst || !boardInfo.sceneIndex) return;
 
+    const scenes = romhandler.getRom()!.getScenes();
     const sceneView = scenes.getDataView(boardInfo.sceneIndex);
     const koopaSpace = sceneView.getUint16(boardInfo.koopaSpaceInst + 2);
     if (board.spaces[koopaSpace])
@@ -498,6 +494,7 @@ export class MP1Adapter extends AdapterBase {
 
     koopaSpace =
       koopaSpace === undefined ? getDeadSpaceIndex(board) : koopaSpace;
+    const scenes = romhandler.getRom()!.getScenes();
     const sceneView = scenes.getDataView(boardInfo.sceneIndex);
     sceneView.setUint16(boardInfo.koopaSpaceInst + 2, koopaSpace);
   }
@@ -505,6 +502,7 @@ export class MP1Adapter extends AdapterBase {
   _extractBowser(board: IBoard, boardInfo: IBoardInfo) {
     if (!boardInfo.bowserSpaceInst || !boardInfo.sceneIndex) return;
 
+    const scenes = romhandler.getRom()!.getScenes();
     const sceneView = scenes.getDataView(boardInfo.sceneIndex);
     const bowserSpace = sceneView.getUint16(boardInfo.bowserSpaceInst + 2);
     if (board.spaces[bowserSpace])
@@ -524,6 +522,7 @@ export class MP1Adapter extends AdapterBase {
 
     bowserSpace =
       bowserSpace === undefined ? getDeadSpaceIndex(board) : bowserSpace;
+    const scenes = romhandler.getRom()!.getScenes();
     const sceneView = scenes.getDataView(boardInfo.sceneIndex);
     sceneView.setUint16(boardInfo.bowserSpaceInst + 2, bowserSpace);
   }
@@ -531,6 +530,7 @@ export class MP1Adapter extends AdapterBase {
   _extractGoomba(board: IBoard, boardInfo: IBoardInfo) {
     if (!boardInfo.goombaSpaceInst || !boardInfo.sceneIndex) return;
 
+    const scenes = romhandler.getRom()!.getScenes();
     const sceneView = scenes.getDataView(boardInfo.sceneIndex);
     const goombaSpace = sceneView.getUint16(boardInfo.goombaSpaceInst + 2);
     if (board.spaces[goombaSpace])
@@ -540,6 +540,7 @@ export class MP1Adapter extends AdapterBase {
   onParseBoardSelectImg(board: IBoard, boardInfo: IBoardInfo) {
     if (!boardInfo.img.boardSelectImg) return;
 
+    const mainfs = romhandler.getRom()?.getMainFS()!;
     const boardSelectFORM = mainfs.get(9, boardInfo.img.boardSelectImg);
     const boardSelectUnpacked = FORM.unpack(boardSelectFORM)!;
     const boardSelectImgTiles = [
@@ -583,6 +584,7 @@ export class MP1Adapter extends AdapterBase {
     });
 
     // Now write the BMPs back into the FORM.
+    const mainfs = romhandler.getRom()?.getMainFS()!;
     const boardSelectFORM = mainfs.get(9, boardSelectIndex!);
     const boardSelectUnpacked = FORM.unpack(boardSelectFORM)!;
     for (let i = 0; i < 4; i++) {
@@ -630,6 +632,8 @@ export class MP1Adapter extends AdapterBase {
         45000,
       );
       srcImage.onload = () => {
+        const mainfs = romhandler.getRom()?.getMainFS()!;
+
         // Write the intro logo images.
         if (introLogoImgs) {
           const imgBuffer = toArrayBuffer(srcImage, introWidth, introHeight);
@@ -687,6 +691,7 @@ export class MP1Adapter extends AdapterBase {
   _clearOtherBoardNames(boardIndex: number) {
     // There is an ugly comic-sansy board name graphic in the after-game results.
     // We will just make it totally transparent because it is not important.
+    const mainfs = romhandler.getRom()?.getMainFS()!;
     const resultsBoardNameImgPack = mainfs.get(10, 406 + boardIndex);
     const imgPackU8Array = new Uint8Array(resultsBoardNameImgPack);
     imgPackU8Array.fill(0, 0x2c); // To the end

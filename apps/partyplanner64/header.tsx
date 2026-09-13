@@ -16,10 +16,10 @@ import {
   getCurrentBoard,
   loadBoardsFromROM,
   indexOfBoard,
-  IBoard,
   boardIsROM,
   setBG,
   copyCurrentBoard,
+  getROMBoards,
 } from "./boards";
 import { recordEvent } from "../../packages/lib/utils/analytics";
 import { $$log } from "../../packages/lib/utils/debug";
@@ -93,6 +93,7 @@ import boarderrorImage from "./img/header/boarderror.png";
 import loadingSquaresImage from "./img/assets/loadingsquares.gif";
 
 import "./css/header.scss";
+import { IBoard } from "../../packages/lib/boards";
 
 interface IHeaderActionItem {
   name: string;
@@ -482,7 +483,7 @@ async function _handleAction(action: Action) {
       setTimeout(() => {
         const writeDecompressed = !!get($setting.writeDecompressed);
         const newROMBuffer = romhandler.saveROM(writeDecompressed);
-        const romBlob = new Blob([newROMBuffer]);
+        const romBlob = new Blob([newROMBuffer as ArrayBuffer]);
         saveAs(romBlob, `MyMarioParty${romhandler.getGameVersion()}.z64`);
         blockUI(false);
         _showEmulatorInstructionsNotification();
@@ -1040,9 +1041,14 @@ const HeaderDropdown = class HeaderDropdown extends React.Component<IHeaderDropd
 };
 
 function overwriteDropdown(closeFn: any) {
+  const romBoards = getROMBoards();
+  const currentBoard = getCurrentBoard();
   const skipValidation = get($setting.uiSkipValidation);
-  const validationResultsPromise =
-    validateCurrentBoardForOverwrite(skipValidation);
+  const validationResultsPromise = validateCurrentBoardForOverwrite(
+    romBoards,
+    currentBoard,
+    skipValidation,
+  );
   return (
     <HeaderOverwriteBoardDropdown
       resultsPromise={validationResultsPromise}
