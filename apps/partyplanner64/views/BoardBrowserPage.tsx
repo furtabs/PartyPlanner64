@@ -60,7 +60,7 @@ const BoardBrowserPage: React.FC = () => {
     // Fetch details if missing
     if (!details[id]) {
       try {
-        const res = await fetch(`https://partyplannerapi.tabithahanegan.com/project/${id}`);
+        const res = await fetch(`https://ppapi.tabs.gay/project/${id}`);
         const detailsData = await res.json();
         setDetails(prev => ({ ...prev, [id]: detailsData }));
       } catch {
@@ -70,7 +70,7 @@ const BoardBrowserPage: React.FC = () => {
     // Fetch files/lastUpdated if missing
     if (!latestFileDates[id]) {
       try {
-        const res = await fetch(`https://partyplannerapi.tabithahanegan.com/project/${id}/files`);
+        const res = await fetch(`https://ppapi.tabs.gay/project/${id}/files`);
         const data = await res.json();
         const versions = data.versions || [];
         if (versions.length > 0) {
@@ -92,7 +92,7 @@ const BoardBrowserPage: React.FC = () => {
     if (topAbort.current) topAbort.current.abort();
     const controller = new AbortController();
     topAbort.current = controller;
-    fetch(`https://partyplannerapi.tabithahanegan.com/project/top?max=${visibleCount}`, { signal: controller.signal })
+    fetch(`https://ppapi.tabs.gay/project/top?max=${visibleCount}`, { signal: controller.signal })
       .then(res => res.json())
       .then(async boards => {
         setBoards(boards);
@@ -101,7 +101,7 @@ const BoardBrowserPage: React.FC = () => {
           const id = b.id || b.projectId;
           if (!id) continue;
           try {
-            const res = await fetch(`https://partyplannerapi.tabithahanegan.com/project/${id}`);
+            const res = await fetch(`https://ppapi.tabs.gay/project/${id}`);
             const details = await res.json();
             setDetails(prev => ({ ...prev, [id]: details }));
           } catch {
@@ -135,7 +135,7 @@ const BoardBrowserPage: React.FC = () => {
     const controller = new AbortController();
     searchAbort.current = controller;
     searchTimeout.current = window.setTimeout(() => {
-      fetch(`https://partyplannerapi.tabithahanegan.com/project/search?searchTerm=${encodeURIComponent(searchTerm.trim())}`, { signal: controller.signal })
+      fetch(`https://ppapi.tabs.gay/project/search?searchTerm=${encodeURIComponent(searchTerm.trim())}`, { signal: controller.signal })
         .then(res => res.json())
         .then(async boards => {
           setSearchResults(boards);
@@ -144,7 +144,7 @@ const BoardBrowserPage: React.FC = () => {
             const id = b.id || b.projectId;
             if (!id) continue;
             try {
-              const res = await fetch(`https://partyplannerapi.tabithahanegan.com/project/${id}`);
+              const res = await fetch(`https://ppapi.tabs.gay/project/${id}`);
               const details = await res.json();
               setDetails(prev => ({ ...prev, [id]: details }));
             } catch {
@@ -183,13 +183,13 @@ const BoardBrowserPage: React.FC = () => {
         if (details[id] && latestFileDates[id]) continue;
         try {
           if (!details[id]) {
-            const res = await fetch(`https://partyplannerapi.tabithahanegan.com/project/${id}`);
+            const res = await fetch(`https://ppapi.tabs.gay/project/${id}`);
             const detailsData = await res.json();
             if (cancelled) break;
             await new Promise<void>(resolve => setDetails(prev => { resolve(); return { ...prev, [id]: detailsData }; }));
           }
           if (!latestFileDates[id]) {
-            const res = await fetch(`https://partyplannerapi.tabithahanegan.com/project/${id}/files`);
+            const res = await fetch(`https://ppapi.tabs.gay/project/${id}/files`);
             const data = await res.json();
             if (cancelled) break;
             const versions = data.versions || [];
@@ -361,7 +361,7 @@ const BoardDetailsPanel: React.FC<{
     setError(null);
     const id = board.id || board.projectId;
     if (!id) return;
-    fetch(`https://partyplannerapi.tabithahanegan.com/project/${id}/files`)
+    fetch(`https://ppapi.tabs.gay/project/${id}/files`)
       .then(res => res.json())
       .then(data => {
         setFiles(data.versions || []);
@@ -378,7 +378,7 @@ const BoardDetailsPanel: React.FC<{
     setImporting(downloadLink);
     setError(null);
     try {
-      const proxyUrl = `https://partyplannerapi.tabithahanegan.com/cors_bypass?url=${encodeURIComponent(downloadLink)}`;
+      const proxyUrl = `https://ppapi.tabs.gay/cors_bypass?url=${encodeURIComponent(downloadLink)}`;
       const res = await fetch(proxyUrl);
       const board = await res.json();
       addBoard(board);
