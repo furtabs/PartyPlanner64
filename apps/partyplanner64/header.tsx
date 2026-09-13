@@ -105,6 +105,11 @@ interface IHeaderActionItem {
   show?: () => boolean;
 }
 
+
+function browseBoardsDropdown(closeFn: VoidFunction) {
+  return <BrowseBoardsDropdown onClose={closeFn} />;
+}
+
 const actions_norom: IHeaderActionItem[] = [
   {
     name: "Load ROM",
@@ -124,6 +129,12 @@ const actions_norom: IHeaderActionItem[] = [
     icon: loadboardImage,
     type: Action.BOARD_LOAD,
     details: "Import a board file into the editor",
+  },
+  {
+    name: "Browse boards",
+    icon: loadboardImage,
+    type: Action.BOARD_BROWSE,
+    details: "Browse and import boards from the PartyPlanner API",
   },
   {
     name: "Export board",
@@ -191,6 +202,13 @@ const actions_rom_romboard: IHeaderActionItem[] = [
     icon: loadboardImage,
     type: Action.BOARD_LOAD,
     details: "Import a board file into the editor",
+  },
+  {
+    name: "Browse boards",
+    icon: loadboardImage,
+    type: Action.BOARD_BROWSE,
+    details: "Browse and import boards from the PartyPlanner API",
+    dropdownFn: browseBoardsDropdown,
   },
   {
     name: "Export board",
@@ -293,6 +311,13 @@ const actions_rom_normalboard: IHeaderActionItem[] = [
     icon: loadboardImage,
     type: Action.BOARD_LOAD,
     details: "Import a board file into the editor",
+  },
+  {
+    name: "Browse boards",
+    icon: loadboardImage,
+    type: Action.BOARD_BROWSE,
+    details: "Browse and import boards from the PartyPlanner API",
+    dropdownFn: browseBoardsDropdown,
   },
   {
     name: "Export board",
@@ -539,6 +564,9 @@ async function _handleAction(action: Action) {
       if (await basicCodeViewPromptExit()) {
         changeView(View.DETAILS);
       }
+      break;
+    case Action.BOARD_BROWSE:
+      changeView(View.BOARD_BROWSER);
       break;
     default:
       break;

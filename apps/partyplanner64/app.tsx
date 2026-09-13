@@ -113,6 +113,8 @@ import {
 } from "../../packages/lib/boards";
 import { setWebCanvasImplementation } from "./utils/canvas";
 import { preloadImages } from "./images";
+import BoardBrowserPage from "./views/BoardBrowserPage";
+
 
 /* eslint-disable jsx-a11y/anchor-is-valid */
 
@@ -282,6 +284,9 @@ function PP64AppInternal(props: PP64AppInternalProps) {
           }
         />
       );
+      break;
+    case View.BOARD_BROWSER:
+      mainView = <BoardBrowserPage />;
       break;
   }
 
