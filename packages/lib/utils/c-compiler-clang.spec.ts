@@ -202,4 +202,21 @@ turnPrice:
     expect(result).not.toContain(".space");
     expect(result).not.toContain(".zero");
   });
+
+  it("rewrites function-local static dotted symbols for hi()/lo()", () => {
+    const input = `
+	lui	$1, %hi(boot.mainThreadStack)
+	addiu	$4, $1, %lo(boot.mainThreadStack)
+boot.mainThreadStack:
+	.space	16
+boot.mainThread:
+	.space	4
+`;
+    const result = sanitizeClangAssembly(input);
+    expect(result).toContain("hi(boot_mainThreadStack)");
+    expect(result).toContain("lo(boot_mainThreadStack)");
+    expect(result).toContain("boot_mainThreadStack:");
+    expect(result).toContain("boot_mainThread:");
+    expect(result).not.toMatch(/boot\.mainThread/);
+  });
 });

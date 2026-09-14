@@ -18,6 +18,7 @@ function rewriteDottedLlvmSymbols(line: string): string {
 /**
  * LLVM MIPS private symbols look like "$.str" / "$BB0_2".
  * "$" is hex in mips-assembler, and leading "." looks like a directive.
+ * Function-local statics look like "boot.mainThreadStack" — the "." breaks hi()/lo().
  */
 function rewriteLlvmSymbols(line: string): string {
   // LLVM local labels (".Ltmp0", ".L.str.4") look like directives.
@@ -27,6 +28,12 @@ function rewriteLlvmSymbols(line: string): string {
 
   // Private LLVM symbols (".str", ".str.4") also start with ".".
   line = rewriteDottedLlvmSymbols(line);
+
+  // Function-scope statics / nested names: "boot.mainThreadStack" -> "boot_mainThreadStack"
+  // mips-assembler hi()/lo() argument parsing does not allow '.'.
+  line = line.replace(/\b([A-Za-z_][\w]*)\.[A-Za-z_][\w.$]*/g, (ident) =>
+    ident.replace(/\./g, "_"),
+  );
 
   // LLVM basic-block / temp / string labels ("$BB0_2", "$.str").
   // Leave "$4" and named GPRs ("$zero") for convertToNamedRegisters.
