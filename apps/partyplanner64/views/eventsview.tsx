@@ -8,6 +8,7 @@ import {
 import {
   normalizeEventProject,
   projectFilesEqual,
+  getCEventExportText,
 } from "../../../packages/lib/events/eventproject";
 import { changeCurrentEvent, changeView, confirmFromUser } from "../appControl";
 import {
@@ -339,7 +340,11 @@ class EventRow extends React.Component<IEventRowProps> {
 
   onExportEvent = () => {
     const event = this.props.event;
-    const asmBlob = new Blob([event.asm]);
+    const contents =
+      event.language === EventCodeLanguage.C
+        ? getCEventExportText(event.asm, event.files)
+        : event.asm;
+    const asmBlob = new Blob([contents]);
     saveAs(asmBlob, getEventFileName(event));
   };
 }

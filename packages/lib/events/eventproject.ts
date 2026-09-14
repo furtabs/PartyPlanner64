@@ -9,6 +9,12 @@ export interface IEventProjectFiles {
 
 export const DEFAULT_ENTRY_FILE = "main.c";
 
+/** Comment marker used to embed multiple project files in a single .c export. */
+export const PP64_FILE_MARKER = "// @@PP64_FILE";
+
+const FILE_BREAK_RE =
+  /^\/\/ @@PP64_FILE\s+(src|include)\/([A-Za-z_][\w.-]*\.(?:c|h))\s*$/;
+
 export function createDefaultCProject(code: string): IEventProjectFiles {
   return {
     src: { [DEFAULT_ENTRY_FILE]: code },
@@ -31,6 +37,12 @@ export function normalizeEventProject(
       include: { ...(files.include || {}) },
     };
   }
+
+  const unpacked = unpackEventProject(code);
+  if (unpacked) {
+    return unpacked;
+  }
+
   return createDefaultCProject(code);
 }
 
@@ -139,4 +151,116 @@ export function projectToIncludeMap(
     ...files.src,
     ...files.include,
   };
+}
+
+/** True when the project has more than a lone src/main.c. */
+export function eventProjectHasExtraFiles(files: IEventProjectFiles): boolean {
+  const srcNames = Object.keys(files.src);
+  const includeNames = Object.keys(files.include);
+  if (includeNames.length > 0) return true;
+  if (srcNames.length !== 1) return true;
+  return srcNames[0] !== DEFAULT_ENTRY_FILE;
+}
+
+/**
+ * Serialize a project into a single .c blob with file-break markers.
+ * Example:
+ *   // @@PP64_FILE src/main.c
+ *   ...
+ *   // @@PP64_FILE include/types.h
+ *   ...
+ */
+export function packEventProject(files: IEventProjectFiles): string {
+  const project = normalizeEventProject(getEntrySource(files), files);
+  const sections: string[] = [];
+
+  for (const name of listProjectFiles(project, "src")) {
+    sections.push(formatPackedSection("src", name, project.src[name]));
+  }
+  for (const name of listProjectFiles(project, "include")) {
+    sections.push(formatPackedSection("include", name, project.include[name]));
+  }
+
+  return sections.join("\n\n") + "\n";
+}
+
+function formatPackedSection(
+  folder: EventProjectFolder,
+  name: string,
+  content: string,
+): string {
+  const body = content.replace(/^\uFEFF/, "").replace(/\s+$/, "");
+  return `${PP64_FILE_MARKER} ${folder}/${name}\n${body}`;
+}
+
+/**
+ * Parse a packed multi-file .c export back into a project.
+ * Returns null when the text is a plain single-file event.
+ */
+export function unpackEventProject(code: string): IEventProjectFiles | null {
+  if (!code || !code.includes(PP64_FILE_MARKER)) {
+    return null;
+  }
+
+  const lines = code.replace(/^\uFEFF/, "").split(/\r?\n/);
+  const src: Record<string, string> = {};
+  const include: Record<string, string> = {};
+
+  let folder: EventProjectFolder | null = null;
+  let name: string | null = null;
+  let body: string[] = [];
+
+  const flush = () => {
+    if (!folder || !name) return;
+    const text = body.join("\n").replace(/^\n+/, "").replace(/\s+$/, "");
+    if (folder === "src") {
+      src[name] = text;
+    } else {
+      include[name] = text;
+    }
+  };
+
+  for (const line of lines) {
+    const match = FILE_BREAK_RE.exec(line);
+    if (match) {
+      flush();
+      folder = match[1] as EventProjectFolder;
+      name = match[2];
+      body = [];
+      continue;
+    }
+    if (folder && name) {
+      body.push(line);
+    }
+  }
+  flush();
+
+  if (!Object.keys(src).length && !Object.keys(include).length) {
+    return null;
+  }
+
+  if (!(DEFAULT_ENTRY_FILE in src)) {
+    // Require an entry file; treat invalid packs as plain source.
+    if (!Object.keys(src).length) {
+      return null;
+    }
+    const first = Object.keys(src).sort()[0];
+    src[DEFAULT_ENTRY_FILE] = src[first];
+  }
+
+  return { src, include };
+}
+
+/**
+ * Text content to download for a C event (.c), packing multi-file projects.
+ */
+export function getCEventExportText(
+  code: string,
+  files?: IEventProjectFiles | null,
+): string {
+  const project = normalizeEventProject(code, files);
+  if (!eventProjectHasExtraFiles(project)) {
+    return getEntrySource(project);
+  }
+  return packEventProject(project);
 }
