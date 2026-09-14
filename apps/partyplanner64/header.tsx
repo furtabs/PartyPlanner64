@@ -69,6 +69,7 @@ import logoImage from "./img/header/logo.png";
 import romCartImage from "./img/header/romcart.png";
 import newboardImage from "./img/header/newboard.png";
 import loadboardImage from "./img/header/loadboard.png";
+import browseboardsImage from "./img/header/browseboards.png";
 import saveboardImage from "./img/header/saveboard.png";
 import debugImage from "./img/header/debug.png";
 import screenshotImage from "./img/header/screenshot.png";
@@ -128,7 +129,7 @@ const actions_norom: IHeaderActionItem[] = [
   },
   {
     name: "Browse boards",
-    icon: loadboardImage,
+    icon: browseboardsImage,
     type: Action.BOARD_BROWSE,
     details: "Browse and import boards from the PartyPlanner API",
   },
@@ -201,7 +202,7 @@ const actions_rom_romboard: IHeaderActionItem[] = [
   },
   {
     name: "Browse boards",
-    icon: loadboardImage,
+    icon: browseboardsImage,
     type: Action.BOARD_BROWSE,
     details: "Browse and import boards from the PartyPlanner API",
   },
@@ -309,7 +310,7 @@ const actions_rom_normalboard: IHeaderActionItem[] = [
   },
   {
     name: "Browse boards",
-    icon: loadboardImage,
+    icon: browseboardsImage,
     type: Action.BOARD_BROWSE,
     details: "Browse and import boards from the PartyPlanner API",
   },

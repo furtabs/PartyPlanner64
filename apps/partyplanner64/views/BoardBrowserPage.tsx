@@ -40,6 +40,8 @@ interface BoardVersion {
   file_name?: string;
 }
 
+const EMPTY_BOARDS: BoardListItem[] = [];
+
 function boardId(raw: any): string {
   const id = raw?.id ?? raw?.projectId;
   return id == null ? "" : String(id);
@@ -135,6 +137,7 @@ const BoardBrowserPage: React.FC = () => {
   const [visibleCount, setVisibleCount] = React.useState(PAGE_SIZE);
   const [loadingMore, setLoadingMore] = React.useState(false);
   const listRef = React.useRef<HTMLDivElement>(null);
+  const enrichmentControllerRef = React.useRef<AbortController | null>(null);
 
   React.useEffect(() => {
     const timer = window.setTimeout(
@@ -145,32 +148,53 @@ const BoardBrowserPage: React.FC = () => {
   }, [searchTerm]);
 
   const isSearching = debouncedSearch.length > 0;
-  const boardsToShow = isSearching ? searchResults || [] : boards;
+  const boardsToShow = isSearching ? searchResults ?? EMPTY_BOARDS : boards;
   const selectedBoard =
-    boardsToShow.find((board) => board.id === selectedId) || null;
+    (selectedId &&
+      (boardsToShow.find((board) => board.id === selectedId) ||
+        boards.find((board) => board.id === selectedId) ||
+        searchResults?.find((board) => board.id === selectedId))) ||
+    null;
 
   const detailsRef = React.useRef(details);
   detailsRef.current = details;
+  const selectedIdRef = React.useRef(selectedId);
+  selectedIdRef.current = selectedId;
+  const boardsToShowRef = React.useRef(boardsToShow);
+  boardsToShowRef.current = boardsToShow;
+
+  const pauseEnrichment = React.useCallback(() => {
+    enrichmentControllerRef.current?.abort();
+    enrichmentControllerRef.current = null;
+  }, []);
 
   const loadEnrichment = React.useCallback(
-    async (items: BoardListItem[], signal?: AbortSignal) => {
+    async (items: BoardListItem[]) => {
+      // Don't contend with the selected board's /files request.
+      if (selectedIdRef.current) return;
+
       const missing = items.filter((item) => !detailsRef.current[item.id]);
       if (!missing.length) return;
 
-      await mapPool(missing, 6, async (item) => {
-        if (signal?.aborted) return null;
+      pauseEnrichment();
+      const controller = new AbortController();
+      enrichmentControllerRef.current = controller;
+
+      await mapPool(missing, 4, async (item) => {
+        if (controller.signal.aborted || selectedIdRef.current) return null;
         try {
           const data = await fetchJson<BoardDetails>(
             `${API_BASE}/project/${item.id}`,
-            signal,
+            controller.signal,
           );
-          if (!signal?.aborted) {
+          if (!controller.signal.aborted) {
             setDetails((prev) =>
               prev[item.id] ? prev : { ...prev, [item.id]: data },
             );
           }
-        } catch {
-          if (!signal?.aborted) {
+        } catch (err) {
+          if ((err as Error)?.name === "AbortError") return null;
+          if (!controller.signal.aborted) {
             setDetails((prev) =>
               prev[item.id] ? prev : { ...prev, [item.id]: { error: true } },
             );
@@ -178,16 +202,34 @@ const BoardBrowserPage: React.FC = () => {
         }
         return null;
       });
+
+      if (enrichmentControllerRef.current === controller) {
+        enrichmentControllerRef.current = null;
+      }
     },
-    [],
+    [pauseEnrichment],
   );
+
+  const handleLastUpdated = React.useCallback((id: string, date: string) => {
+    setLatestDates((prev) =>
+      prev[id] === date ? prev : { ...prev, [id]: date },
+    );
+  }, []);
+
+  // Pause background enrichment while a board modal needs the network.
+  React.useEffect(() => {
+    if (selectedId) {
+      pauseEnrichment();
+      return;
+    }
+    void loadEnrichment(boardsToShowRef.current);
+  }, [selectedId, pauseEnrichment, loadEnrichment]);
 
   // Top boards list
   React.useEffect(() => {
     if (isSearching) return;
     const controller = new AbortController();
-    const isFirstPage = visibleCount <= PAGE_SIZE && boards.length === 0;
-    if (isFirstPage) {
+    if (visibleCount === PAGE_SIZE) {
       setLoading(true);
     }
     setError(null);
@@ -202,7 +244,7 @@ const BoardBrowserPage: React.FC = () => {
         setBoards(next);
         setLoading(false);
         setLoadingMore(false);
-        void loadEnrichment(next, controller.signal);
+        void loadEnrichment(next);
       })
       .catch((err) => {
         if (err.name === "AbortError") return;
@@ -211,7 +253,6 @@ const BoardBrowserPage: React.FC = () => {
         setLoadingMore(false);
       });
     return () => controller.abort();
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- only refetch when page size / search mode changes
   }, [visibleCount, isSearching, loadEnrichment]);
 
   // Search
@@ -234,7 +275,7 @@ const BoardBrowserPage: React.FC = () => {
           .filter((item): item is BoardListItem => !!item);
         setSearchResults(next);
         setSearching(false);
-        void loadEnrichment(next, controller.signal);
+        void loadEnrichment(next);
       })
       .catch((err) => {
         if (err.name === "AbortError") return;
@@ -419,12 +460,7 @@ const BoardBrowserPage: React.FC = () => {
                 board={selectedBoard}
                 details={details[selectedBoard.id]}
                 lastUpdated={latestDates[selectedBoard.id]}
-                onLastUpdated={(date) =>
-                  setLatestDates((prev) => ({
-                    ...prev,
-                    [selectedBoard.id]: date,
-                  }))
-                }
+                onLastUpdated={handleLastUpdated}
                 onClose={() => setSelectedId(null)}
               />
             </div>
@@ -439,7 +475,7 @@ const BoardDetailsPanel: React.FC<{
   board: BoardListItem;
   details?: BoardDetails;
   lastUpdated?: string;
-  onLastUpdated: (date: string) => void;
+  onLastUpdated: (id: string, date: string) => void;
   onClose: () => void;
 }> = ({ board, details, lastUpdated, onLastUpdated, onClose }) => {
   const [versions, setVersions] = React.useState<BoardVersion[]>([]);
@@ -449,28 +485,33 @@ const BoardDetailsPanel: React.FC<{
   const [descExpanded, setDescExpanded] = React.useState(false);
 
   React.useEffect(() => {
+    let cancelled = false;
     setDescExpanded(false);
+    setVersions([]);
     setLoading(true);
     setError(null);
-    const controller = new AbortController();
+
     fetchJson<{ versions?: BoardVersion[] }>(
       `${API_BASE}/project/${board.id}/files`,
-      controller.signal,
     )
       .then((data) => {
+        if (cancelled) return;
         const next = data.versions || [];
         setVersions(next);
         if (next[0]?.release_date) {
-          onLastUpdated(next[0].release_date);
+          onLastUpdated(board.id, next[0].release_date);
         }
         setLoading(false);
       })
       .catch((err) => {
-        if (err.name === "AbortError") return;
+        if (cancelled || err.name === "AbortError") return;
         setError("Failed to load versions.");
         setLoading(false);
       });
-    return () => controller.abort();
+
+    return () => {
+      cancelled = true;
+    };
   }, [board.id, onLastUpdated]);
 
   const handleImport = async (downloadLink: string, boardName: string) => {
