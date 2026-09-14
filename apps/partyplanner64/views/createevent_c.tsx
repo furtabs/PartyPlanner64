@@ -124,6 +124,8 @@ export class CreateCEventView
     const isEntryFile =
       this.state.activeFile.folder === "src" &&
       this.state.activeFile.name === DEFAULT_ENTRY_FILE;
+    const isHeader = this.state.activeFile.name.toLowerCase().endsWith(".h");
+    const sourceTabCaption = isHeader ? "C Header" : "C Source";
     const showingCompiledAsm =
       isEntryFile && this.state.activeCodeTabIndex === 1;
     const activePath = showingCompiledAsm
@@ -149,7 +151,7 @@ export class CreateCEventView
               tabsClassName="createEventTabStripTabs"
               onActiveTabChanged={this.onActiveTabChanged}
             >
-              <Tab caption="C Source" className="createEventTabStripTab">
+              <Tab caption={sourceTabCaption} className="createEventTabStripTab">
                 <CodeMirrorWrapper
                   key={activePath}
                   mode="c"
