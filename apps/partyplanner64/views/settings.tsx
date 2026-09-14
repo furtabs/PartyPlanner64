@@ -716,6 +716,23 @@ function SymbolPathsSetting(props: ISymbolPathsSettingProps) {
     commit(sources.filter((entry) => entry.id !== source.id));
   }
 
+  function reimportDefaultSymbols() {
+    const defaultsById = new Map(
+      DEFAULT_DECOMP_SYMBOL_SOURCES.map((source) => [source.id, source]),
+    );
+    const defaultsByPath = new Map(
+      DEFAULT_DECOMP_SYMBOL_SOURCES.map((source) => [source.path, source]),
+    );
+    const kept = sources.filter(
+      (source) =>
+        !defaultsById.has(source.id) && !defaultsByPath.has(source.path),
+    );
+    commit([
+      ...DEFAULT_DECOMP_SYMBOL_SOURCES.map((source) => ({ ...source })),
+      ...kept,
+    ]);
+  }
+
   function addLocalFile() {
     openFile(".sym,.csv,.txt,text/plain", (event: Event) => {
       const input = event.target as HTMLInputElement;
@@ -803,6 +820,13 @@ function SymbolPathsSetting(props: ISymbolPathsSettingProps) {
         />
         <Button onClick={() => addPath(pathText)}>Add URL</Button>
         <Button onClick={addLocalFile}>Add file</Button>
+        <Button
+          css="symbolPathsReimport"
+          title="Restore the default mariopartyrd NTSC-U symbol_addrs.txt files and reload them"
+          onClick={reimportDefaultSymbols}
+        >
+          Reimport defaults
+        </Button>
       </div>
       {error && <div className="symbolPathsError">{error}</div>}
     </div>

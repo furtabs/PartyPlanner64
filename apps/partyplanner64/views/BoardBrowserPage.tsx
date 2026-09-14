@@ -4,332 +4,428 @@ import { showMessage, changeView } from "../appControl";
 import { View } from "../../../packages/lib/types";
 import "../css/boardbrowser.scss";
 
-const gameNames: Record<number, string> = {
-  1: "Mario Party 1",
-  2: "Mario Party 2",
-  3: "Mario Party 3",
-};
+const API_BASE = "https://ppapi.tabs.gay";
+const PAGE_SIZE = 20;
 
-const spinner = (
-  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 80 }}>
-    <div style={{ width: 32, height: 32, border: '4px solid #bfa07a', borderTop: '4px solid #d2b8a3', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
-    <style>{`@keyframes spin { 100% { transform: rotate(360deg); } }`}</style>
-  </div>
-);
+interface BoardListItem {
+  id: string;
+  name: string;
+  author?: string;
+  icon?: string;
+  gameId?: number;
+}
 
-function formatDate(dateStr: string) {
-  if (!dateStr) return "";
+interface BoardDetails {
+  id?: number | string;
+  name?: string;
+  author?: string;
+  icon?: string;
+  description?: string;
+  difficulty?: number;
+  recommended_turns?: number;
+  custom_events?: number;
+  custom_music?: number;
+  creation_date?: string;
+  theme?: string;
+  space_count?: number;
+  error?: boolean;
+}
+
+interface BoardVersion {
+  file_id: string;
+  file_version: string;
+  release_date?: string;
+  download_count?: string | number;
+  download_link: string;
+  file_name?: string;
+}
+
+function boardId(raw: any): string {
+  const id = raw?.id ?? raw?.projectId;
+  return id == null ? "" : String(id);
+}
+
+function normalizeListItem(raw: any): BoardListItem | null {
+  const id = boardId(raw);
+  if (!id) return null;
+  return {
+    id,
+    name: raw.name || `Board ${id}`,
+    author: raw.author || raw.creator,
+    icon: raw.icon,
+    gameId: typeof raw.gameId === "number" ? raw.gameId : undefined,
+  };
+}
+
+function formatDate(dateStr?: string): string {
+  if (!dateStr) return "—";
   const d = new Date(dateStr);
+  if (Number.isNaN(d.getTime())) return dateStr;
   return d.toLocaleDateString();
 }
 
-function shortDescription(desc: string) {
-  if (!desc) return "";
-  return desc.replace(/\s+/g, " ").slice(0, 120) + (desc.length > 120 ? "..." : "");
+function renderStars(starRank: unknown): string {
+  const n = Math.max(0, Math.min(5, Number(starRank)));
+  if (!Number.isFinite(n) || n <= 0) return "—";
+  return "★".repeat(n) + "☆".repeat(5 - n);
 }
 
-// Helper to render star rating as stars
-function renderStars(starRank: any) {
-  const n = Math.max(0, Math.min(5, Number(starRank)));
-  if (isNaN(n) || n === 0) return '0/5';
-  return '★'.repeat(n) + '☆'.repeat(5 - n);
+function gameLabel(gameId?: number): string {
+  if (gameId === 1) return "MP1";
+  if (gameId === 2) return "MP2";
+  if (gameId === 3) return "MP3";
+  return "";
+}
+
+async function fetchJson<T>(url: string, signal?: AbortSignal): Promise<T> {
+  const res = await fetch(url, { signal });
+  if (!res.ok) {
+    throw new Error(`Request failed (${res.status})`);
+  }
+  return res.json() as Promise<T>;
+}
+
+async function mapPool<T, R>(
+  items: T[],
+  concurrency: number,
+  worker: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const results: R[] = new Array(items.length);
+  let next = 0;
+  async function run() {
+    while (next < items.length) {
+      const index = next++;
+      results[index] = await worker(items[index]);
+    }
+  }
+  const runners = Array.from(
+    { length: Math.min(concurrency, items.length) },
+    () => run(),
+  );
+  await Promise.all(runners);
+  return results;
+}
+
+function Spinner({ label }: { label?: string }) {
+  return (
+    <div className="boardBrowserSpinner" role="status" aria-live="polite">
+      <div className="boardBrowserSpinnerMark" />
+      {label && <span>{label}</span>}
+    </div>
+  );
 }
 
 const BoardBrowserPage: React.FC = () => {
-  const [boards, setBoards] = React.useState<any[]>([]);
+  const [boards, setBoards] = React.useState<BoardListItem[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
   const [searchTerm, setSearchTerm] = React.useState("");
+  const [debouncedSearch, setDebouncedSearch] = React.useState("");
   const [searching, setSearching] = React.useState(false);
-  const [searchResults, setSearchResults] = React.useState<any[] | null>(null);
-  const [selectedBoard, setSelectedBoard] = React.useState<any | null>(null);
-  const [details, setDetails] = React.useState<Record<string, any>>({});
-  const searchTimeout = React.useRef<number | null>(null);
-  const searchAbort = React.useRef<AbortController | null>(null);
-  const topAbort = React.useRef<AbortController | null>(null);
-  const [latestFileDates, setLatestFileDates] = React.useState<Record<string, string>>({});
-  const [descExpanded, setDescExpanded] = React.useState<Record<string, boolean>>({});
-  const [visibleCount, setVisibleCount] = React.useState(15);
+  const [searchResults, setSearchResults] = React.useState<
+    BoardListItem[] | null
+  >(null);
+  const [selectedId, setSelectedId] = React.useState<string | null>(null);
+  const [details, setDetails] = React.useState<Record<string, BoardDetails>>(
+    {},
+  );
+  const [latestDates, setLatestDates] = React.useState<Record<string, string>>(
+    {},
+  );
+  const [visibleCount, setVisibleCount] = React.useState(PAGE_SIZE);
+  const [loadingMore, setLoadingMore] = React.useState(false);
   const listRef = React.useRef<HTMLDivElement>(null);
-  const [isLoadingMore, setIsLoadingMore] = React.useState(false);
-  const [isBatchLoading, setIsBatchLoading] = React.useState(false);
 
-  // Add a function to priority load details and files for a board
-  const priorityLoadBoardDetails = async (id: string) => {
-    if (!id) return;
-    // Fetch details if missing
-    if (!details[id]) {
-      try {
-        const res = await fetch(`https://ppapi.tabs.gay/project/${id}`);
-        const detailsData = await res.json();
-        setDetails(prev => ({ ...prev, [id]: detailsData }));
-      } catch {
-        setDetails(prev => ({ ...prev, [id]: { error: true } }));
-      }
-    }
-    // Fetch files/lastUpdated if missing
-    if (!latestFileDates[id]) {
-      try {
-        const res = await fetch(`https://ppapi.tabs.gay/project/${id}/files`);
-        const data = await res.json();
-        const versions = data.versions || [];
-        if (versions.length > 0) {
-          const latest = versions.reduce((a: any, b: any) => {
-            if (!a.release_date) return b;
-            if (!b.release_date) return a;
-            return a.release_date > b.release_date ? a : b;
-          });
-          setLatestFileDates(prev => ({ ...prev, [id]: latest.release_date }));
-        }
-      } catch {}
-    }
-  };
-
-  // Fetch boards with increasing max as user scrolls (only if not searching)
   React.useEffect(() => {
-    if (searchTerm.trim()) return; // Don't fetch top if searching
-    setLoading(true);
-    if (topAbort.current) topAbort.current.abort();
-    const controller = new AbortController();
-    topAbort.current = controller;
-    fetch(`https://ppapi.tabs.gay/project/top?max=${visibleCount}`, { signal: controller.signal })
-      .then(res => res.json())
-      .then(async boards => {
-        setBoards(boards);
-        // Fetch details for each board using its id
-        for (const b of boards) {
-          const id = b.id || b.projectId;
-          if (!id) continue;
-          try {
-            const res = await fetch(`https://ppapi.tabs.gay/project/${id}`);
-            const details = await res.json();
-            setDetails(prev => ({ ...prev, [id]: details }));
-          } catch {
-            setDetails(prev => ({ ...prev, [id]: { error: true } }));
+    const timer = window.setTimeout(
+      () => setDebouncedSearch(searchTerm.trim()),
+      280,
+    );
+    return () => clearTimeout(timer);
+  }, [searchTerm]);
+
+  const isSearching = debouncedSearch.length > 0;
+  const boardsToShow = isSearching ? searchResults || [] : boards;
+  const selectedBoard =
+    boardsToShow.find((board) => board.id === selectedId) || null;
+
+  const detailsRef = React.useRef(details);
+  detailsRef.current = details;
+
+  const loadEnrichment = React.useCallback(
+    async (items: BoardListItem[], signal?: AbortSignal) => {
+      const missing = items.filter((item) => !detailsRef.current[item.id]);
+      if (!missing.length) return;
+
+      await mapPool(missing, 6, async (item) => {
+        if (signal?.aborted) return null;
+        try {
+          const data = await fetchJson<BoardDetails>(
+            `${API_BASE}/project/${item.id}`,
+            signal,
+          );
+          if (!signal?.aborted) {
+            setDetails((prev) =>
+              prev[item.id] ? prev : { ...prev, [item.id]: data },
+            );
+          }
+        } catch {
+          if (!signal?.aborted) {
+            setDetails((prev) =>
+              prev[item.id] ? prev : { ...prev, [item.id]: { error: true } },
+            );
           }
         }
-        setLoading(false);
-        setIsLoadingMore(false);
-      })
-      .catch(e => {
-        if (e.name === 'AbortError') return;
-        setError("Failed to fetch boards");
-        setLoading(false);
-        setIsLoadingMore(false);
+        return null;
       });
-    return () => {
-      controller.abort();
-    };
-  }, [visibleCount, searchTerm]);
+    },
+    [],
+  );
 
-  // Search fetch with debounce and cancellation
+  // Top boards list
   React.useEffect(() => {
-    if (!searchTerm.trim()) {
+    if (isSearching) return;
+    const controller = new AbortController();
+    const isFirstPage = visibleCount <= PAGE_SIZE && boards.length === 0;
+    if (isFirstPage) {
+      setLoading(true);
+    }
+    setError(null);
+    fetchJson<any[]>(
+      `${API_BASE}/project/top?max=${visibleCount}`,
+      controller.signal,
+    )
+      .then((raw) => {
+        const next = raw
+          .map(normalizeListItem)
+          .filter((item): item is BoardListItem => !!item);
+        setBoards(next);
+        setLoading(false);
+        setLoadingMore(false);
+        void loadEnrichment(next, controller.signal);
+      })
+      .catch((err) => {
+        if (err.name === "AbortError") return;
+        setError("Failed to load boards.");
+        setLoading(false);
+        setLoadingMore(false);
+      });
+    return () => controller.abort();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only refetch when page size / search mode changes
+  }, [visibleCount, isSearching, loadEnrichment]);
+
+  // Search
+  React.useEffect(() => {
+    if (!isSearching) {
       setSearchResults(null);
       setSearching(false);
       return;
     }
-    setSearching(true);
-    if (searchTimeout.current) clearTimeout(searchTimeout.current);
-    if (searchAbort.current) searchAbort.current.abort();
     const controller = new AbortController();
-    searchAbort.current = controller;
-    searchTimeout.current = window.setTimeout(() => {
-      fetch(`https://ppapi.tabs.gay/project/search?searchTerm=${encodeURIComponent(searchTerm.trim())}`, { signal: controller.signal })
-        .then(res => res.json())
-        .then(async boards => {
-          setSearchResults(boards);
-          // Fetch details for each board using its id
-          for (const b of boards) {
-            const id = b.id || b.projectId;
-            if (!id) continue;
-            try {
-              const res = await fetch(`https://ppapi.tabs.gay/project/${id}`);
-              const details = await res.json();
-              setDetails(prev => ({ ...prev, [id]: details }));
-            } catch {
-              setDetails(prev => ({ ...prev, [id]: { error: true } }));
-            }
-          }
-          setSearching(false);
-        })
-        .catch(e => {
-          if (e.name === 'AbortError') return;
-          setError("Failed to fetch search results");
-          setSearching(false);
-        });
-    }, 300);
-    return () => {
-      clearTimeout(searchTimeout.current!);
-      controller.abort();
-    };
-  }, [searchTerm]);
+    setSearching(true);
+    setError(null);
+    fetchJson<any[]>(
+      `${API_BASE}/project/search?searchTerm=${encodeURIComponent(debouncedSearch)}`,
+      controller.signal,
+    )
+      .then((raw) => {
+        const next = raw
+          .map(normalizeListItem)
+          .filter((item): item is BoardListItem => !!item);
+        setSearchResults(next);
+        setSearching(false);
+        void loadEnrichment(next, controller.signal);
+      })
+      .catch((err) => {
+        if (err.name === "AbortError") return;
+        setError("Failed to search boards.");
+        setSearching(false);
+      });
+    return () => controller.abort();
+  }, [debouncedSearch, isSearching, loadEnrichment]);
 
-  const boardsToShow = (searchTerm.trim() ? searchResults : boards) || [];
-  const visibleBoards = boardsToShow;
-
-  // Sequential loader effect as a named function for clarity
+  // Infinite scroll for top list only
   React.useEffect(() => {
-    if (!boardsToShow || boardsToShow.length === 0) return;
-    let cancelled = false;
-    setIsBatchLoading(true);
-    const loadBoardDetailsSequentially = async () => {
-      for (let index = 0; index < boardsToShow.length; index++) {
-        if (cancelled) break;
-        const b = boardsToShow[index];
-        const id = b.id || b.projectId;
-        if (!id) continue;
-        // Skip if already loaded
-        if (details[id] && latestFileDates[id]) continue;
-        try {
-          if (!details[id]) {
-            const res = await fetch(`https://ppapi.tabs.gay/project/${id}`);
-            const detailsData = await res.json();
-            if (cancelled) break;
-            await new Promise<void>(resolve => setDetails(prev => { resolve(); return { ...prev, [id]: detailsData }; }));
-          }
-          if (!latestFileDates[id]) {
-            const res = await fetch(`https://ppapi.tabs.gay/project/${id}/files`);
-            const data = await res.json();
-            if (cancelled) break;
-            const versions = data.versions || [];
-            if (versions.length > 0) {
-              const latest = versions.reduce((a: any, b: any) => {
-                if (!a.release_date) return b;
-                if (!b.release_date) return a;
-                return a.release_date > b.release_date ? a : b;
-              });
-              await new Promise<void>(resolve => setLatestFileDates(prev => { resolve(); return { ...prev, [id]: latest.release_date }; }));
-            }
-          }
-        } catch {
-          setDetails(prev => ({ ...prev, [id]: { error: true } }));
-        }
-      }
-      setIsBatchLoading(false);
-    };
-    loadBoardDetailsSequentially();
-    return () => { cancelled = true; };
-  }, [boardsToShow, details, latestFileDates]);
-
-  // Infinite scroll: load more boards when scrolling near the bottom
-  React.useEffect(() => {
-    const handleScroll = () => {
-      const el = listRef.current;
-      if (!el) return;
-      if (el.scrollTop + el.clientHeight >= el.scrollHeight - 100 && !isLoadingMore && !isBatchLoading) {
-        setIsLoadingMore(true);
-        setVisibleCount(count => count + 15);
-      }
-    };
     const el = listRef.current;
-    if (el) el.addEventListener('scroll', handleScroll);
-    return () => {
-      if (el) el.removeEventListener('scroll', handleScroll);
+    if (!el || isSearching) return;
+    const onScroll = () => {
+      if (loadingMore || loading) return;
+      if (el.scrollTop + el.clientHeight >= el.scrollHeight - 120) {
+        setLoadingMore(true);
+        setVisibleCount((count) => count + PAGE_SIZE);
+      }
     };
-  }, [isLoadingMore, isBatchLoading]);
+    el.addEventListener("scroll", onScroll);
+    return () => el.removeEventListener("scroll", onScroll);
+  }, [isSearching, loadingMore, loading]);
 
-  // Hide loading animation after a short delay when visibleCount increases
   React.useEffect(() => {
-    if (!isLoadingMore) return;
-    const timeout = setTimeout(() => setIsLoadingMore(false), 600);
-    return () => clearTimeout(timeout);
-  }, [visibleCount]);
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && selectedId) {
+        setSelectedId(null);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [selectedId]);
 
-  const isLoading = searchTerm.trim() ? searching : loading;
+  const busy = isSearching ? searching : loading && boards.length === 0;
 
   return (
     <div className="boardBrowserPage">
-      {/* Top Bar */}
       <div className="boardBrowserTopBar">
-        <div className="boardBrowserTitle">Search</div>
+        <div className="boardBrowserTitle">Browse boards</div>
         <div className="boardBrowserSearch">
           <input
-            type="text"
-            placeholder="Search boards..."
+            type="search"
+            placeholder="Search by name…"
             value={searchTerm}
-            onChange={e => setSearchTerm(e.target.value)}
+            onChange={(e) => {
+              setSearchTerm(e.target.value);
+              setSelectedId(null);
+            }}
             autoFocus
+            aria-label="Search boards"
           />
+          {searchTerm && (
+            <button
+              type="button"
+              className="boardBrowserClearSearch"
+              onClick={() => setSearchTerm("")}
+              title="Clear search"
+            >
+              Clear
+            </button>
+          )}
         </div>
-        {error && <div className="boardBrowserError">{error}</div>}
+        <div className="boardBrowserTopMeta">
+          {isSearching
+            ? searching
+              ? "Searching…"
+              : `${boardsToShow.length} result${boardsToShow.length === 1 ? "" : "s"}`
+            : loading && !boards.length
+              ? "Loading…"
+              : `${boardsToShow.length} boards`}
+        </div>
       </div>
-      {/* Main Content */}
+
+      {error && <div className="boardBrowserError">{error}</div>}
+
       <div className="boardBrowserContent">
-        {/* Board List */}
-        {!selectedBoard && (
-          <div className="boardBrowserList" ref={listRef} style={{ overflowY: 'auto', maxHeight: 'calc(100vh - 120px)' }}>
-            {visibleBoards && visibleBoards.length > 0 && (
-              <>
-                {visibleBoards.map((b: any) => {
-                  const id = b.id || b.projectId;
-                  const d = details[id] || {};
-                  const image = d.icon || b.icon;
-                  const starRank = d.hasOwnProperty('difficulty') ? d.difficulty : (b.hasOwnProperty('difficulty') ? b.difficulty : undefined);
-                  const author = d.hasOwnProperty('author') ? d.author : (b.hasOwnProperty('author') ? b.author : undefined);
-                  const desc = d.hasOwnProperty('description') ? d.description : b.description;
-                  const lastUpdated = latestFileDates[id];
-                  const isExpanded = descExpanded[id];
-                  const descLimit = 120;
-                  const isLongDesc = desc && desc.length > descLimit;
-                  const descToShow = isExpanded || !isLongDesc ? desc : desc.slice(0, descLimit) + '...';
-                  return (
-                    <div
-                      key={id}
-                      className="boardBrowserCard"
-                      onClick={() => { setSelectedBoard({ ...b, id }); priorityLoadBoardDetails(id); }}
-                    >
-                      <div className="boardBrowserCardImageWrap">
-                        {image ? (
-                          <img src={image} alt="Board preview" className="boardBrowserCardImage" />
-                        ) : (
-                          <div className="boardBrowserCardPlaceholder">?</div>
-                        )}
-                      </div>
-                      <div className="boardBrowserCardContent">
-                        <div>
-                          <span className="boardBrowserCardTitle">{d.hasOwnProperty('name') ? d.name : (b.hasOwnProperty('name') ? b.name : (b.id || b.projectId))}</span>
-                          <span className="boardBrowserCardAuthor">by {author !== undefined ? author : <span style={{color:'#aaa'}}><em>Loading...</em></span>}</span>
-                        </div>
-                        <div className="boardBrowserCardDesc">
-                          {descToShow}
-                        </div>
-                        <div className="boardBrowserCardStats">
-                          <span title="Star Rank">{starRank !== undefined ? renderStars(starRank) : <span style={{color:'#aaa'}}><em>Loading...</em></span>}</span>
-                          <span title="Recommended Turns">🕙 {d.hasOwnProperty('recommended_turns') ? d.recommended_turns : (b.hasOwnProperty('recommended_turns') ? b.recommended_turns : <span style={{color:'#aaa'}}><em>Loading...</em></span>)}</span>
-                          <span title="Created">📅 {lastUpdated ? formatDate(lastUpdated) : <span style={{color:'#aaa'}}><em>Loading...</em></span>}</span>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-                {/* Show spinner at bottom if any visible board is missing details or last updated, or if loading more or searching */}
-                {(
-                  visibleBoards.some((b: any) => {
-                    const id = b.id || b.projectId;
-                    return !details[id] || !latestFileDates[id];
-                  }) || isLoadingMore || searching
-                ) ? (
-                  <div style={{ display: 'flex', justifyContent: 'center', padding: 16 }}>
-                    {spinner}
+        <div className="boardBrowserList" ref={listRef}>
+          {busy && <Spinner label={isSearching ? "Searching…" : "Loading…"} />}
+
+          {!busy && boardsToShow.length === 0 && (
+            <div className="boardBrowserEmpty">
+              {isSearching
+                ? `No boards matched “${debouncedSearch}”.`
+                : "No boards found."}
+            </div>
+          )}
+
+          {boardsToShow.map((board) => {
+            const d = details[board.id];
+            const title = d?.name || board.name;
+            const author = d?.author || board.author || "Unknown author";
+            const icon = d?.icon || board.icon;
+            const desc = d?.description || "";
+            const loadingRow = !d;
+            return (
+              <button
+                type="button"
+                key={board.id}
+                className={
+                  "boardBrowserCard" +
+                  (selectedId === board.id ? " selected" : "")
+                }
+                onClick={() => setSelectedId(board.id)}
+              >
+                <div className="boardBrowserCardImageWrap">
+                  {icon ? (
+                    <img
+                      src={
+                        icon.startsWith("/")
+                          ? `${API_BASE}${icon}`
+                          : icon
+                      }
+                      alt=""
+                      className="boardBrowserCardImage"
+                    />
+                  ) : (
+                    <div className="boardBrowserCardPlaceholder">?</div>
+                  )}
+                </div>
+                <div className="boardBrowserCardContent">
+                  <div className="boardBrowserCardHeading">
+                    <span className="boardBrowserCardTitle">{title}</span>
+                    {gameLabel(board.gameId) && (
+                      <span className="boardBrowserCardGame">
+                        {gameLabel(board.gameId)}
+                      </span>
+                    )}
                   </div>
-                ) : null}
-              </>
-            )}
-            {(!visibleBoards || visibleBoards.length === 0) && !isLoadingMore && !searching && !isLoading && (
-              <div className="boardBrowserNoBoards">No boards found.</div>
-            )}
-          </div>
-        )}
-        {/* Full Page Details Panel as Modal */}
+                  <div className="boardBrowserCardAuthor">{author}</div>
+                  <div className="boardBrowserCardDesc">
+                    {loadingRow
+                      ? "Loading details…"
+                      : desc || "No description."}
+                  </div>
+                  <div className="boardBrowserCardStats">
+                    <span>{renderStars(d?.difficulty)}</span>
+                    <span>
+                      {d?.recommended_turns != null
+                        ? `${d.recommended_turns} turns`
+                        : "—"}
+                    </span>
+                    <span>
+                      {d?.custom_events
+                        ? "Custom events"
+                        : d
+                          ? "Stock events"
+                          : "—"}
+                    </span>
+                    <span>
+                      {d?.custom_music
+                        ? "Custom music"
+                        : d
+                          ? "Stock music"
+                          : "—"}
+                    </span>
+                  </div>
+                </div>
+              </button>
+            );
+          })}
+
+          {(loadingMore ||
+            (!isSearching &&
+              boardsToShow.some((board) => !details[board.id]))) &&
+            !busy && <Spinner label="Loading more…" />}
+        </div>
+
         {selectedBoard && (
-          <div className="modlist-modal-overlay" onClick={() => setSelectedBoard(null)}>
-            <div className="modlist-modal-card" onClick={e => e.stopPropagation()}>
+          <div
+            className="boardBrowserModalOverlay"
+            onClick={() => setSelectedId(null)}
+          >
+            <div
+              className="boardBrowserModal"
+              onClick={(e) => e.stopPropagation()}
+              role="dialog"
+              aria-modal="true"
+              aria-label={selectedBoard.name}
+            >
               <BoardDetailsPanel
                 board={selectedBoard}
-                details={selectedBoard ? details[selectedBoard.id] : null}
-                lastUpdated={latestFileDates[selectedBoard.id]}
-                onClose={() => setSelectedBoard(null)}
+                details={details[selectedBoard.id]}
+                lastUpdated={latestDates[selectedBoard.id]}
+                onLastUpdated={(date) =>
+                  setLatestDates((prev) => ({
+                    ...prev,
+                    [selectedBoard.id]: date,
+                  }))
+                }
+                onClose={() => setSelectedId(null)}
               />
             </div>
           </div>
@@ -340,148 +436,200 @@ const BoardBrowserPage: React.FC = () => {
 };
 
 const BoardDetailsPanel: React.FC<{
-  board: any;
-  details: any;
-  lastUpdated: string | undefined;
+  board: BoardListItem;
+  details?: BoardDetails;
+  lastUpdated?: string;
+  onLastUpdated: (date: string) => void;
   onClose: () => void;
-}> = ({ board, details, lastUpdated, onClose }) => {
-  const [files, setFiles] = React.useState<any[]>([]);
-  const [loading, setLoading] = React.useState(false);
+}> = ({ board, details, lastUpdated, onLastUpdated, onClose }) => {
+  const [versions, setVersions] = React.useState<BoardVersion[]>([]);
+  const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
   const [importing, setImporting] = React.useState<string | null>(null);
   const [descExpanded, setDescExpanded] = React.useState(false);
-  const [descFullWidth, setDescFullWidth] = React.useState(false);
-
-  // Show loading if details or lastUpdated are missing
-  const isPanelLoading = !details || !lastUpdated;
 
   React.useEffect(() => {
-    if (!board) return;
+    setDescExpanded(false);
     setLoading(true);
     setError(null);
-    const id = board.id || board.projectId;
-    if (!id) return;
-    fetch(`https://ppapi.tabs.gay/project/${id}/files`)
-      .then(res => res.json())
-      .then(data => {
-        setFiles(data.versions || []);
+    const controller = new AbortController();
+    fetchJson<{ versions?: BoardVersion[] }>(
+      `${API_BASE}/project/${board.id}/files`,
+      controller.signal,
+    )
+      .then((data) => {
+        const next = data.versions || [];
+        setVersions(next);
+        if (next[0]?.release_date) {
+          onLastUpdated(next[0].release_date);
+        }
         setLoading(false);
       })
-      .catch(() => {
-        setError("Failed to fetch board info");
+      .catch((err) => {
+        if (err.name === "AbortError") return;
+        setError("Failed to load versions.");
         setLoading(false);
       });
-  }, [board]);
+    return () => controller.abort();
+  }, [board.id, onLastUpdated]);
 
-  // Restore handleImport for import button
   const handleImport = async (downloadLink: string, boardName: string) => {
     setImporting(downloadLink);
     setError(null);
     try {
-      const proxyUrl = `https://ppapi.tabs.gay/cors_bypass?url=${encodeURIComponent(downloadLink)}`;
-      const res = await fetch(proxyUrl);
-      const board = await res.json();
-      addBoard(board);
+      const proxyUrl = `${API_BASE}/cors_bypass?url=${encodeURIComponent(downloadLink)}`;
+      const boardJson = await fetchJson<any>(proxyUrl);
+      addBoard(boardJson);
       showMessage(`Imported board: ${boardName}`);
       changeView(View.EDITOR);
-    } catch (e) {
-      setError("Failed to import board");
+    } catch {
+      setError("Failed to import board.");
     }
     setImporting(null);
   };
 
-  const description = details?.description || board.description || 'No description.';
-  const descLimit = 220;
-  const isLongDesc = description.length > descLimit;
-  const showFull = descExpanded;
-  const descToShow = showFull ? description : description.slice(0, descLimit) + (isLongDesc ? '...' : '');
+  const title = details?.name || board.name;
+  const author = details?.author || board.author || "Unknown";
+  const icon = details?.icon || board.icon;
+  const description = details?.description || "No description.";
+  const descLimit = 280;
+  const isLong = description.length > descLimit;
+  const descShown =
+    descExpanded || !isLong
+      ? description
+      : `${description.slice(0, descLimit).trim()}…`;
 
   return (
-    <div className="modlist-style">
-      {isPanelLoading ? (
-        <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: 200 }}>
-          {spinner}
+    <div className="boardBrowserDetails">
+      <div className="boardBrowserDetailsBanner">
+        {icon ? (
+          <img
+            src={icon.startsWith("/") ? `${API_BASE}${icon}` : icon}
+            alt=""
+            className="boardBrowserDetailsBannerImg"
+          />
+        ) : (
+          <div className="boardBrowserDetailsBannerPlaceholder">?</div>
+        )}
+        <div className="boardBrowserDetailsBannerFade" />
+        <div className="boardBrowserDetailsBannerText">
+          <h2>{title}</h2>
+          <p>by {author}</p>
         </div>
-      ) : board && (
-        <div className="boardBrowserDetailsPanelInner">
-          {/* Banner Header Section */}
-          <div className="boardBrowserHeaderBanner">
-            {details?.icon || board.icon ? (
-              <img src={details?.icon || board.icon} alt="Board preview" className="boardBrowserHeaderImage" />
-            ) : (
-              <div className="boardBrowserHeaderImage boardBrowserHeaderPlaceholder">?</div>
-            )}
-            <div className="boardBrowserHeaderOverlay"></div>
-            <div className="boardBrowserHeaderText">
-              <div className="boardBrowserHeaderTitle">{details?.name || board.name || board.id}</div>
-              <div className="boardBrowserHeaderAuthor">by {details?.author || board.author || 'Unknown'}</div>
-            </div>
-            <button className="modlist-close" onClick={onClose} title="Close">×</button>
-          </div>
-          {/* Stats Row */}
-          <div className="modlist-stats-row">
-            <div className="modlist-stat" title="Star Rank"><span className="modlist-stat-icon">Star Rank⭐: </span> {renderStars(details?.difficulty ?? board.difficulty ?? 0)}</div>
-            <div className="modlist-stat" title="Custom Events"><span className="modlist-stat-icon">Events 🎫: </span> {(details?.custom_events ?? board.custom_events ?? 0) > 0 ? '✓' : (details?.custom_events ?? board.custom_events ?? 0) === 0 ? '✗' : (details?.custom_events ?? board.custom_events ?? 0)}</div>
-            <div className="modlist-stat" title="Custom Music"><span className="modlist-stat-icon">Music 🎵: </span> {(details?.custom_music ?? board.custom_music ?? 0) > 0 ? '✓' : (details?.custom_music ?? board.custom_music ?? 0) === 0 ? '✗' : (details?.custom_music ?? board.custom_music ?? 0)}</div>
-            <div className="modlist-stat" title="Recommended Turns"><span className="modlist-stat-icon">Recommended Turns 🕙: </span> {details?.recommended_turns ?? board.recommended_turns ?? '?'}</div>
-            <div className="modlist-stat" title="Created"><span className="modlist-stat-icon">Creation Date 📅:</span> {formatDate(details?.creation_date || board.creation_date)}</div>
-            <div className="modlist-stat" title="Last Updated"><span className="modlist-stat-icon">📝 Last Updated:</span> {formatDate(lastUpdated || "")}</div>
-          </div>
-          {/* Description Section */}
-          <div className="boardBrowserSection">
-            <div className="boardBrowserSectionTitle">Description</div>
-            <div className={`boardBrowserDescriptionCard${descFullWidth ? ' boardBrowserDescriptionFullWidth' : ''}`}
-                 style={descFullWidth ? { position: 'absolute', left: 0, right: 0, top: '100px', zIndex: 10, background: 'var(--modal-bg, #fff)', boxShadow: '0 2px 16px rgba(0,0,0,0.15)', padding: 24, borderRadius: 8, margin: 16, maxWidth: 'none', width: 'calc(100% - 32px)' } : {}}>
-              {descFullWidth && files.length > 0 && (
-                <span style={{ position: 'absolute', top: 16, right: 32, fontWeight: 600, background: 'rgba(0,0,0,0.07)', borderRadius: 6, padding: '2px 10px', fontSize: '1em', color: '#333' }}>v{files[0].file_version}</span>
-              )}
-              {descToShow}
-              {isLongDesc && !descExpanded && (
-                <button className="boardBrowserDescShowmore" style={{ fontSize: '1.08em', fontWeight: 700, background: 'var(--accent-color, #2196f3)', color: '#fff', border: 'none', borderRadius: 6, padding: '6px 18px', marginTop: 12, cursor: 'pointer', boxShadow: '0 1px 4px rgba(0,0,0,0.08)' }} onClick={() => setDescExpanded(true)}>Show more... (may include</button>
-              )}
-            </div>
-          </div>
-          <div className="boardBrowserSectionDivider"></div>
-          {/* Versions Section */}
-          <div className="boardBrowserSection">
-            <div className="boardBrowserSectionTitle">Versions</div>
-            {loading ? spinner : error ? (
-              <div className="boardBrowserErrorCard">{error}</div>
-            ) : (
-              <ul className="boardBrowserVersionList">
-                {files.map((v: any) => (
-                  <li key={v.file_id} className="boardBrowserVersionItem" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                      <span className="boardBrowserVersionTagBlue" style={{ fontWeight: 600, border: '2px solid #2196f3', background: 'rgba(33,150,243,0.08)', color: '#1976d2', borderRadius: 6, padding: '2px 12px', fontSize: '1em', minWidth: 56, textAlign: 'center' }}>v{v.file_version}</span>
-                      {v.release_date && <span className="boardBrowserVersionDate" style={{ marginLeft: 8 }}>{v.release_date}</span>}
-                    </div>
-                    <div style={{ flex: 1 }} />
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                      <span className="boardBrowserVersionDownloads">⬇️ {v.download_count}</span>
-                      <button
-                        className="boardBrowserDownloadBtn"
-                        style={{ background: '#ffe082', color: '#795548', fontWeight: 600, border: '1.5px solid #ffd54f', borderRadius: 6, padding: '6px 18px', fontSize: '1em', cursor: 'pointer' }}
-                        onClick={() => window.open(v.download_link, '_blank')}
-                      >
-                        Download
-                      </button>
-                      <button
-                        onClick={() => handleImport(v.download_link, details?.name || board.name)}
-                        disabled={importing === v.download_link}
-                        className="boardBrowserImportBtn"
-                      >
-                        {importing === v.download_link ? 'Importing...' : 'Import'}
-                      </button>
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
+        <button
+          type="button"
+          className="boardBrowserDetailsClose"
+          onClick={onClose}
+          title="Close"
+        >
+          ×
+        </button>
+      </div>
+
+      <div className="boardBrowserDetailsStats">
+        <div>
+          <span className="boardBrowserStatLabel">Difficulty</span>
+          <span>{renderStars(details?.difficulty)}</span>
         </div>
-      )}
+        <div>
+          <span className="boardBrowserStatLabel">Turns</span>
+          <span>{details?.recommended_turns ?? "—"}</span>
+        </div>
+        <div>
+          <span className="boardBrowserStatLabel">Events</span>
+          <span>
+            {details?.custom_events != null
+              ? details.custom_events > 0
+                ? "Custom"
+                : "Stock"
+              : "—"}
+          </span>
+        </div>
+        <div>
+          <span className="boardBrowserStatLabel">Music</span>
+          <span>
+            {details?.custom_music != null
+              ? details.custom_music > 0
+                ? "Custom"
+                : "Stock"
+              : "—"}
+          </span>
+        </div>
+        <div>
+          <span className="boardBrowserStatLabel">Created</span>
+          <span>{formatDate(details?.creation_date)}</span>
+        </div>
+        <div>
+          <span className="boardBrowserStatLabel">Updated</span>
+          <span>{formatDate(lastUpdated)}</span>
+        </div>
+      </div>
+
+      <section className="boardBrowserDetailsSection">
+        <h3>Description</h3>
+        <div className="boardBrowserDetailsDesc">{descShown}</div>
+        {isLong && (
+          <button
+            type="button"
+            className="boardBrowserLinkBtn"
+            onClick={() => setDescExpanded((v) => !v)}
+          >
+            {descExpanded ? "Show less" : "Show more"}
+          </button>
+        )}
+      </section>
+
+      <section className="boardBrowserDetailsSection">
+        <h3>Versions</h3>
+        {loading && <Spinner label="Loading versions…" />}
+        {error && <div className="boardBrowserErrorCard">{error}</div>}
+        {!loading && !error && versions.length === 0 && (
+          <div className="boardBrowserEmpty">No versions available.</div>
+        )}
+        {!loading && versions.length > 0 && (
+          <ul className="boardBrowserVersionList">
+            {versions.map((version) => (
+              <li
+                key={`${version.file_id}-${version.file_version}-${version.release_date}`}
+                className="boardBrowserVersionItem"
+              >
+                <div className="boardBrowserVersionInfo">
+                  <span className="boardBrowserVersionTag">
+                    v{version.file_version}
+                  </span>
+                  <span className="boardBrowserVersionDate">
+                    {formatDate(version.release_date)}
+                  </span>
+                  <span className="boardBrowserVersionDownloads">
+                    {version.download_count ?? 0} downloads
+                  </span>
+                </div>
+                <div className="boardBrowserVersionActions">
+                  <button
+                    type="button"
+                    className="boardBrowserSecondaryBtn"
+                    onClick={() => window.open(version.download_link, "_blank")}
+                  >
+                    Download
+                  </button>
+                  <button
+                    type="button"
+                    className="boardBrowserImportBtn"
+                    disabled={importing === version.download_link}
+                    onClick={() => handleImport(version.download_link, title)}
+                  >
+                    {importing === version.download_link
+                      ? "Importing…"
+                      : "Import"}
+                  </button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
     </div>
   );
 };
 
-export default BoardBrowserPage; 
+export default BoardBrowserPage;
