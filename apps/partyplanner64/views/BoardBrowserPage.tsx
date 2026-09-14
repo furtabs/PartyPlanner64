@@ -6,6 +6,8 @@ import "../css/boardbrowser.scss";
 
 const API_BASE = "https://ppapi.tabs.gay";
 const PAGE_SIZE = 20;
+const ENRICH_CONCURRENCY = 8;
+const CACHE_TTL_MS = 5 * 60 * 1000;
 
 interface BoardListItem {
   id: string;
@@ -40,7 +42,39 @@ interface BoardVersion {
   file_name?: string;
 }
 
+interface CacheEntry<T> {
+  value: T;
+  expiresAt: number;
+}
+
 const EMPTY_BOARDS: BoardListItem[] = [];
+
+const topListCache = new Map<number, CacheEntry<BoardListItem[]>>();
+const searchCache = new Map<string, CacheEntry<BoardListItem[]>>();
+const detailsCache = new Map<string, CacheEntry<BoardDetails>>();
+const versionsCache = new Map<string, CacheEntry<BoardVersion[]>>();
+const detailsInflight = new Map<string, Promise<BoardDetails>>();
+const versionsInflight = new Map<string, Promise<BoardVersion[]>>();
+const topInflight = new Map<number, Promise<BoardListItem[]>>();
+const searchInflight = new Map<string, Promise<BoardListItem[]>>();
+
+function cacheGet<T>(map: Map<string | number, CacheEntry<T>>, key: string | number): T | undefined {
+  const entry = map.get(key);
+  if (!entry) return undefined;
+  if (Date.now() > entry.expiresAt) {
+    map.delete(key);
+    return undefined;
+  }
+  return entry.value;
+}
+
+function cacheSet<T>(
+  map: Map<string | number, CacheEntry<T>>,
+  key: string | number,
+  value: T,
+): void {
+  map.set(key, { value, expiresAt: Date.now() + CACHE_TTL_MS });
+}
 
 function boardId(raw: any): string {
   const id = raw?.id ?? raw?.projectId;
@@ -57,6 +91,12 @@ function normalizeListItem(raw: any): BoardListItem | null {
     icon: raw.icon,
     gameId: typeof raw.gameId === "number" ? raw.gameId : undefined,
   };
+}
+
+function normalizeList(raw: any[]): BoardListItem[] {
+  return raw
+    .map(normalizeListItem)
+    .filter((item): item is BoardListItem => !!item);
 }
 
 function formatDate(dateStr?: string): string {
@@ -77,6 +117,11 @@ function gameLabel(gameId?: number): string {
   if (gameId === 2) return "MP2";
   if (gameId === 3) return "MP3";
   return "";
+}
+
+function resolveIconUrl(icon?: string): string | undefined {
+  if (!icon) return undefined;
+  return icon.startsWith("/") ? `${API_BASE}${icon}` : icon;
 }
 
 async function fetchJson<T>(url: string, signal?: AbortSignal): Promise<T> {
@@ -101,11 +146,133 @@ async function mapPool<T, R>(
     }
   }
   const runners = Array.from(
-    { length: Math.min(concurrency, items.length) },
+    { length: Math.min(concurrency, Math.max(items.length, 1)) },
     () => run(),
   );
   await Promise.all(runners);
   return results;
+}
+
+async function fetchTopBoards(
+  max: number,
+  signal?: AbortSignal,
+): Promise<BoardListItem[]> {
+  const cached = cacheGet(topListCache, max);
+  if (cached) return cached;
+
+  const existing = topInflight.get(max);
+  if (existing) return existing;
+
+  const promise = fetchJson<any[]>(
+    `${API_BASE}/project/top?max=${max}`,
+    signal,
+  )
+    .then((raw) => {
+      const next = normalizeList(raw);
+      cacheSet(topListCache, max, next);
+      return next;
+    })
+    .finally(() => {
+      topInflight.delete(max);
+    });
+
+  topInflight.set(max, promise);
+  return promise;
+}
+
+async function fetchSearchBoards(
+  term: string,
+  signal?: AbortSignal,
+): Promise<BoardListItem[]> {
+  const key = term.toLowerCase();
+  const cached = cacheGet(searchCache, key);
+  if (cached) return cached;
+
+  const existing = searchInflight.get(key);
+  if (existing) return existing;
+
+  const promise = fetchJson<any[]>(
+    `${API_BASE}/project/search?searchTerm=${encodeURIComponent(term)}`,
+    signal,
+  )
+    .then((raw) => {
+      const next = normalizeList(raw);
+      cacheSet(searchCache, key, next);
+      return next;
+    })
+    .finally(() => {
+      searchInflight.delete(key);
+    });
+
+  searchInflight.set(key, promise);
+  return promise;
+}
+
+async function fetchBoardDetails(
+  id: string,
+  signal?: AbortSignal,
+): Promise<BoardDetails> {
+  const cached = cacheGet(detailsCache, id);
+  if (cached) return cached;
+
+  const existing = detailsInflight.get(id);
+  if (existing) return existing;
+
+  const promise = fetchJson<BoardDetails>(`${API_BASE}/project/${id}`, signal)
+    .then((data) => {
+      cacheSet(detailsCache, id, data);
+      return data;
+    })
+    .catch((err) => {
+      if ((err as Error)?.name === "AbortError") throw err;
+      const failed: BoardDetails = { error: true };
+      cacheSet(detailsCache, id, failed);
+      return failed;
+    })
+    .finally(() => {
+      detailsInflight.delete(id);
+    });
+
+  detailsInflight.set(id, promise);
+  return promise;
+}
+
+async function fetchBoardVersions(
+  id: string,
+  signal?: AbortSignal,
+): Promise<BoardVersion[]> {
+  const cached = cacheGet(versionsCache, id);
+  if (cached) return cached;
+
+  const existing = versionsInflight.get(id);
+  if (existing) return existing;
+
+  const promise = fetchJson<{ versions?: BoardVersion[] }>(
+    `${API_BASE}/project/${id}/files`,
+    signal,
+  )
+    .then((data) => {
+      const next = data.versions || [];
+      cacheSet(versionsCache, id, next);
+      return next;
+    })
+    .finally(() => {
+      versionsInflight.delete(id);
+    });
+
+  versionsInflight.set(id, promise);
+  return promise;
+}
+
+function hydrateDetailsFromCache(
+  items: BoardListItem[],
+): Record<string, BoardDetails> {
+  const hydrated: Record<string, BoardDetails> = {};
+  for (const item of items) {
+    const cached = cacheGet(detailsCache, item.id);
+    if (cached) hydrated[item.id] = cached;
+  }
+  return hydrated;
 }
 
 function Spinner({ label }: { label?: string }) {
@@ -180,28 +347,45 @@ const BoardBrowserPage: React.FC = () => {
       const controller = new AbortController();
       enrichmentControllerRef.current = controller;
 
-      await mapPool(missing, 4, async (item) => {
+      const batch: Record<string, BoardDetails> = {};
+      let pending = 0;
+      const flush = () => {
+        if (!pending) return;
+        const chunk = { ...batch };
+        for (const key of Object.keys(chunk)) {
+          delete batch[key];
+        }
+        pending = 0;
+        setDetails((prev) => {
+          let changed = false;
+          const next = { ...prev };
+          for (const [id, data] of Object.entries(chunk)) {
+            if (!next[id]) {
+              next[id] = data;
+              changed = true;
+            }
+          }
+          return changed ? next : prev;
+        });
+      };
+
+      await mapPool(missing, ENRICH_CONCURRENCY, async (item) => {
         if (controller.signal.aborted || selectedIdRef.current) return null;
         try {
-          const data = await fetchJson<BoardDetails>(
-            `${API_BASE}/project/${item.id}`,
-            controller.signal,
-          );
-          if (!controller.signal.aborted) {
-            setDetails((prev) =>
-              prev[item.id] ? prev : { ...prev, [item.id]: data },
-            );
-          }
+          const data = await fetchBoardDetails(item.id, controller.signal);
+          if (controller.signal.aborted) return null;
+          batch[item.id] = data;
+          pending++;
+          if (pending >= 4) flush();
         } catch (err) {
           if ((err as Error)?.name === "AbortError") return null;
-          if (!controller.signal.aborted) {
-            setDetails((prev) =>
-              prev[item.id] ? prev : { ...prev, [item.id]: { error: true } },
-            );
-          }
         }
         return null;
       });
+
+      if (!controller.signal.aborted) {
+        flush();
+      }
 
       if (enrichmentControllerRef.current === controller) {
         enrichmentControllerRef.current = null;
@@ -209,6 +393,11 @@ const BoardBrowserPage: React.FC = () => {
     },
     [pauseEnrichment],
   );
+
+  const prefetchBoard = React.useCallback((id: string) => {
+    void fetchBoardDetails(id);
+    void fetchBoardVersions(id);
+  }, []);
 
   const handleLastUpdated = React.useCallback((id: string, date: string) => {
     setLatestDates((prev) =>
@@ -220,6 +409,12 @@ const BoardBrowserPage: React.FC = () => {
   React.useEffect(() => {
     if (selectedId) {
       pauseEnrichment();
+      void fetchBoardDetails(selectedId).then((data) => {
+        setDetails((prev) =>
+          prev[selectedId] === data ? prev : { ...prev, [selectedId]: data },
+        );
+      });
+      void fetchBoardVersions(selectedId);
       return;
     }
     void loadEnrichment(boardsToShowRef.current);
@@ -229,19 +424,24 @@ const BoardBrowserPage: React.FC = () => {
   React.useEffect(() => {
     if (isSearching) return;
     const controller = new AbortController();
-    if (visibleCount === PAGE_SIZE) {
+
+    const cached = cacheGet(topListCache, visibleCount);
+    if (cached) {
+      setBoards(cached);
+      setDetails((prev) => ({ ...hydrateDetailsFromCache(cached), ...prev }));
+      setLoading(false);
+      setLoadingMore(false);
+      void loadEnrichment(cached);
+    } else if (visibleCount === PAGE_SIZE) {
       setLoading(true);
     }
+
     setError(null);
-    fetchJson<any[]>(
-      `${API_BASE}/project/top?max=${visibleCount}`,
-      controller.signal,
-    )
-      .then((raw) => {
-        const next = raw
-          .map(normalizeListItem)
-          .filter((item): item is BoardListItem => !!item);
+    fetchTopBoards(visibleCount, controller.signal)
+      .then((next) => {
+        if (controller.signal.aborted) return;
         setBoards(next);
+        setDetails((prev) => ({ ...hydrateDetailsFromCache(next), ...prev }));
         setLoading(false);
         setLoadingMore(false);
         void loadEnrichment(next);
@@ -263,17 +463,21 @@ const BoardBrowserPage: React.FC = () => {
       return;
     }
     const controller = new AbortController();
-    setSearching(true);
+    const cached = cacheGet(searchCache, debouncedSearch.toLowerCase());
+    if (cached) {
+      setSearchResults(cached);
+      setDetails((prev) => ({ ...hydrateDetailsFromCache(cached), ...prev }));
+      setSearching(false);
+      void loadEnrichment(cached);
+    } else {
+      setSearching(true);
+    }
     setError(null);
-    fetchJson<any[]>(
-      `${API_BASE}/project/search?searchTerm=${encodeURIComponent(debouncedSearch)}`,
-      controller.signal,
-    )
-      .then((raw) => {
-        const next = raw
-          .map(normalizeListItem)
-          .filter((item): item is BoardListItem => !!item);
+    fetchSearchBoards(debouncedSearch, controller.signal)
+      .then((next) => {
+        if (controller.signal.aborted) return;
         setSearchResults(next);
+        setDetails((prev) => ({ ...hydrateDetailsFromCache(next), ...prev }));
         setSearching(false);
         void loadEnrichment(next);
       })
@@ -379,18 +583,20 @@ const BoardBrowserPage: React.FC = () => {
                   "boardBrowserCard" +
                   (selectedId === board.id ? " selected" : "")
                 }
-                onClick={() => setSelectedId(board.id)}
+                onMouseEnter={() => prefetchBoard(board.id)}
+                onFocus={() => prefetchBoard(board.id)}
+                onClick={() => {
+                  prefetchBoard(board.id);
+                  setSelectedId(board.id);
+                }}
               >
                 <div className="boardBrowserCardImageWrap">
                   {icon ? (
                     <img
-                      src={
-                        icon.startsWith("/")
-                          ? `${API_BASE}${icon}`
-                          : icon
-                      }
+                      src={resolveIconUrl(icon)}
                       alt=""
                       className="boardBrowserCardImage"
+                      loading="lazy"
                     />
                   ) : (
                     <div className="boardBrowserCardPlaceholder">?</div>
@@ -478,8 +684,11 @@ const BoardDetailsPanel: React.FC<{
   onLastUpdated: (id: string, date: string) => void;
   onClose: () => void;
 }> = ({ board, details, lastUpdated, onLastUpdated, onClose }) => {
-  const [versions, setVersions] = React.useState<BoardVersion[]>([]);
-  const [loading, setLoading] = React.useState(true);
+  const cachedVersions = cacheGet(versionsCache, board.id);
+  const [versions, setVersions] = React.useState<BoardVersion[]>(
+    cachedVersions || [],
+  );
+  const [loading, setLoading] = React.useState(!cachedVersions);
   const [error, setError] = React.useState<string | null>(null);
   const [importing, setImporting] = React.useState<string | null>(null);
   const [descExpanded, setDescExpanded] = React.useState(false);
@@ -487,16 +696,23 @@ const BoardDetailsPanel: React.FC<{
   React.useEffect(() => {
     let cancelled = false;
     setDescExpanded(false);
-    setVersions([]);
-    setLoading(true);
+    const cached = cacheGet(versionsCache, board.id);
+    if (cached) {
+      setVersions(cached);
+      setLoading(false);
+      if (cached[0]?.release_date) {
+        onLastUpdated(board.id, cached[0].release_date);
+      }
+    } else {
+      setVersions([]);
+      setLoading(true);
+    }
     setError(null);
 
-    fetchJson<{ versions?: BoardVersion[] }>(
-      `${API_BASE}/project/${board.id}/files`,
-    )
-      .then((data) => {
+    // Refresh in background even when cached, so counts stay fairly fresh.
+    fetchBoardVersions(board.id)
+      .then((next) => {
         if (cancelled) return;
-        const next = data.versions || [];
         setVersions(next);
         if (next[0]?.release_date) {
           onLastUpdated(board.id, next[0].release_date);
@@ -505,9 +721,14 @@ const BoardDetailsPanel: React.FC<{
       })
       .catch((err) => {
         if (cancelled || err.name === "AbortError") return;
-        setError("Failed to load versions.");
+        if (!cacheGet(versionsCache, board.id)) {
+          setError("Failed to load versions.");
+        }
         setLoading(false);
       });
+
+    // Also ensure details are present if the list never finished enriching.
+    void fetchBoardDetails(board.id);
 
     return () => {
       cancelled = true;
@@ -531,7 +752,7 @@ const BoardDetailsPanel: React.FC<{
 
   const title = details?.name || board.name;
   const author = details?.author || board.author || "Unknown";
-  const icon = details?.icon || board.icon;
+  const icon = resolveIconUrl(details?.icon || board.icon);
   const description = details?.description || "No description.";
   const descLimit = 280;
   const isLong = description.length > descLimit;
@@ -545,7 +766,7 @@ const BoardDetailsPanel: React.FC<{
       <div className="boardBrowserDetailsBanner">
         {icon ? (
           <img
-            src={icon.startsWith("/") ? `${API_BASE}${icon}` : icon}
+            src={icon}
             alt=""
             className="boardBrowserDetailsBannerImg"
           />
