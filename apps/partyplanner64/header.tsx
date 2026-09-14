@@ -107,7 +107,7 @@ interface IHeaderActionItem {
 
 
 function browseBoardsDropdown(closeFn: VoidFunction) {
-  return <BrowseBoardsDropdown onClose={closeFn} />;
+  return <browseBoardsDropdown onClose={closeFn} />;
 }
 
 const actions_norom: IHeaderActionItem[] = [
