@@ -106,10 +106,6 @@ interface IHeaderActionItem {
 }
 
 
-function browseBoardsDropdown(closeFn: VoidFunction) {
-  return <browseBoardsDropdown onClose={closeFn} />;
-}
-
 const actions_norom: IHeaderActionItem[] = [
   {
     name: "Load ROM",
@@ -208,7 +204,6 @@ const actions_rom_romboard: IHeaderActionItem[] = [
     icon: loadboardImage,
     type: Action.BOARD_BROWSE,
     details: "Browse and import boards from the PartyPlanner API",
-    dropdownFn: browseBoardsDropdown,
   },
   {
     name: "Export board",
@@ -317,7 +312,6 @@ const actions_rom_normalboard: IHeaderActionItem[] = [
     icon: loadboardImage,
     type: Action.BOARD_BROWSE,
     details: "Browse and import boards from the PartyPlanner API",
-    dropdownFn: browseBoardsDropdown,
   },
   {
     name: "Export board",
