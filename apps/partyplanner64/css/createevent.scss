@@ -11,6 +11,194 @@
   }
 }
 
+.createEventIdeLayout {
+  align-items: stretch;
+  flex-wrap: nowrap;
+  justify-content: flex-start;
+  gap: 0;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.createEventIdePane {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 100%;
+  border: 1px solid rgba(0, 0, 0, 0.45);
+  border-radius: 3px;
+  overflow: hidden;
+  background: var(--code-bg-color);
+}
+
+.eventFileExplorer {
+  width: 180px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  background: #2a2422;
+  border-right: 1px solid rgba(0, 0, 0, 0.45);
+  color: #e8e0dc;
+  font-size: 11pt;
+  user-select: none;
+}
+
+.eventFileExplorerHeader {
+  padding: 0.55em 0.7em 0.4em;
+  font-weight: bold;
+  font-size: 10pt;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  opacity: 0.85;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.25);
+}
+
+.eventFileExplorerTree {
+  flex: 1;
+  overflow: auto;
+  padding: 0.35em 0;
+}
+
+.eventFileExplorerHint {
+  padding: 0.45em 0.65em 0.55em;
+  font-size: 8.5pt;
+  line-height: 1.35;
+  opacity: 0.7;
+  border-top: 1px solid rgba(0, 0, 0, 0.25);
+
+  code {
+    font-family: Consolas, monospace;
+    font-size: inherit;
+  }
+}
+
+.eventFileFolderRow {
+  display: flex;
+  align-items: center;
+  gap: 0.25em;
+  padding: 0.2em 0.45em 0.2em 0.35em;
+  cursor: pointer;
+
+  &:hover {
+    background: rgba(255, 255, 255, 0.08);
+  }
+}
+
+.eventFileTwisty {
+  width: 0.9em;
+  text-align: center;
+  opacity: 0.75;
+  font-size: 9pt;
+}
+
+.eventFileFolderLabel {
+  flex: 1;
+  font-family: Consolas, monospace;
+  font-size: 10pt;
+  font-weight: bold;
+}
+
+.eventFileAddBtn,
+.eventFileDeleteBtn {
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: inherit;
+  opacity: 0.55;
+  cursor: pointer;
+  line-height: 1;
+  padding: 0 0.2em;
+  font-size: 12pt;
+
+  &:hover {
+    opacity: 1;
+  }
+}
+
+.eventFileChildren {
+  padding-left: 0.35em;
+}
+
+.eventFileEmpty {
+  padding: 0.15em 0.6em 0.35em 1.6em;
+  opacity: 0.5;
+  font-size: 9pt;
+  font-style: italic;
+}
+
+.eventFileRow {
+  display: flex;
+  align-items: center;
+  gap: 0.35em;
+  padding: 0.18em 0.45em 0.18em 1.15em;
+  cursor: pointer;
+
+  &:hover {
+    background: rgba(255, 255, 255, 0.08);
+  }
+
+  &:hover .eventFileDeleteBtn {
+    opacity: 0.7;
+  }
+}
+
+.eventFileRowActive {
+  background: rgba(0, 0, 0, 0.35);
+
+  &:hover {
+    background: rgba(0, 0, 0, 0.4);
+  }
+}
+
+.eventFileIcon {
+  flex-shrink: 0;
+  width: 1.15em;
+  height: 1.15em;
+  border-radius: 2px;
+  background: rgba(0, 0, 0, 0.35);
+  color: var(--text-color);
+  font-family: Consolas, monospace;
+  font-size: 8pt;
+  font-weight: bold;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0.9;
+}
+
+.eventFileName {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: Consolas, monospace;
+  font-size: 10pt;
+}
+
+.eventFileDeleteBtn {
+  opacity: 0;
+  font-size: 14pt;
+}
+
+.createEventEditorColumn {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.createEventOpenFilePath {
+  flex-shrink: 0;
+  padding: 0.35em 0.75em;
+  font-family: Consolas, monospace;
+  font-size: 10pt;
+  color: #3a322f;
+  background: rgba(0, 0, 0, 0.06);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.18);
+}
+
 $codeMirrorWidth: 640px;
 $codeMirrorWidthBigger: 900px;
 $codeMirrorBackground: var(--code-bg-color);
@@ -47,9 +235,16 @@ $codeMirrorReadonlyBackground: var(--code-readonly-bg-color);
   height: 100%;
 }
 
+.createEventIdePane .createeventcodemirror {
+  width: 100%;
+  height: 100%;
+  border-radius: 0;
+}
+
 .createEventForm {
   width: 260px;
   padding: 0 1em;
+  flex-shrink: 0;
 
   &,
   * {
@@ -69,10 +264,19 @@ $codeMirrorReadonlyBackground: var(--code-readonly-bg-color);
 
   .toggleButton.pressed {
     background-color: rgba(0, 0, 0, 0.75);
+    color: #fff;
   }
 
   .cCompilerToggle {
     margin-top: 4px;
+
+    .toggleButton {
+      color: var(--text-color);
+    }
+
+    .toggleButton.pressed {
+      color: #fff;
+    }
   }
 
   .cCompilerControls {
@@ -161,11 +365,16 @@ $codeMirrorReadonlyBackground: var(--code-readonly-bg-color);
 }
 
 .createEventTabStrip {
-  width: $codeMirrorWidth;
-  height: 100%;
+  width: 100%;
+  flex: 1;
+  min-height: 0;
   min-width: 300px;
   display: flex;
   flex-direction: column;
+}
+
+.createEventIdePane .createEventTabStrip {
+  width: auto;
 }
 
 .createEventTabStripContent {
@@ -210,25 +419,68 @@ $codeMirrorReadonlyBackground: var(--code-readonly-bg-color);
   }
 }
 
-@media (max-width: 965px) {
-  .createeventcodemirror {
-    height: 500px;
+@media (max-width: 1100px) {
+  .createEventIdeLayout {
+    flex-wrap: wrap;
+    height: auto;
+  }
+
+  .createEventIdePane {
+    width: 100%;
+    height: 560px;
+  }
+
+  .createEventIdePane .createeventcodemirror {
+    height: 100%;
     width: 100%;
 
     .CodeMirror {
-      height: 500px;
+      height: 100%;
     }
-  }
-
-  .createEventTabStrip {
-    height: 545px;
-    width: 100%;
   }
 
   .createEventForm {
     margin-top: 1em;
     padding: 0;
-    width: 610px;
+    width: 100%;
+    max-width: 610px;
+  }
+}
+
+@media (max-width: 965px) {
+  .createEventViewContainer:not(.createEventIdeLayout) {
+    .createeventcodemirror {
+      height: 500px;
+      width: 100%;
+
+      .CodeMirror {
+        height: 500px;
+      }
+    }
+
+    .createEventForm {
+      margin-top: 1em;
+      padding: 0;
+      width: 610px;
+    }
+  }
+}
+
+@media (max-width: 700px) {
+  .createEventIdePane {
+    flex-direction: column;
+    height: auto;
+  }
+
+  .eventFileExplorer {
+    width: 100%;
+    max-height: 180px;
+    border-right: none;
+    border-bottom: 1px solid rgba(0, 0, 0, 0.35);
+  }
+
+  .createEventEditorColumn {
+    height: 480px;
   }
 }
 
@@ -237,7 +489,19 @@ $codeMirrorReadonlyBackground: var(--code-readonly-bg-color);
     width: $codeMirrorWidthBigger;
   }
 
+  .createEventIdePane .createeventcodemirror {
+    width: 100%;
+  }
+
+  .createEventIdePane {
+    max-width: calc(#{$codeMirrorWidthBigger} + 180px);
+  }
+
   .createEventTabStrip {
     width: $codeMirrorWidthBigger;
+  }
+
+  .createEventIdePane .createEventTabStrip {
+    width: auto;
   }
 }

@@ -556,8 +556,6 @@ function CCompilerSetting(props: ICCompilerSettingProps) {
   return (
     <div className="cCompilerSetting">
       <div className="cCompilerSettingLines">
-        <span className="cCompilerSettingMain">{props.name}</span>
-        <br />
         <span className="cCompilerSettingDesc">{props.desc}</span>
       </div>
       <CCompilerControls />

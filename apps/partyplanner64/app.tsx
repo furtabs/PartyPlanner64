@@ -529,6 +529,7 @@ function initializeState(): void {
         const customEvent = createCustomEvent(
           customEventObj.language || EventCodeLanguage.MIPS,
           customEventObj.asm,
+          customEventObj.files,
         );
         store.dispatch(addEventToLibraryAction({ event: customEvent }));
       } catch (e) {

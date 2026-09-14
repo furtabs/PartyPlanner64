@@ -5,6 +5,10 @@ import {
   ICustomEvent,
   createCustomEvent,
 } from "../../../packages/lib/events/customevents";
+import {
+  normalizeEventProject,
+  projectFilesEqual,
+} from "../../../packages/lib/events/eventproject";
 import { changeCurrentEvent, changeView, confirmFromUser } from "../appControl";
 import {
   excludeEventFromBoard,
@@ -20,7 +24,7 @@ import { saveAs } from "file-saver";
 import { stringComparer } from "../../../packages/lib/utils/string";
 import { useCurrentBoard } from "../hooks";
 import { useCustomEvents } from "../events/EventHooks";
-
+import { getBoardEvent, IBoard } from "../../../packages/lib/boards";
 import libraryImage from "../img/events/library.png";
 import deleteImage from "../img/events/delete.png";
 import exportImage from "../img/events/export.png";
@@ -32,7 +36,6 @@ import copytoboardImage from "../img/events/copytoboard.png";
 import copytoboard_destructiveImage from "../img/events/copytoboard_destructive.png";
 
 import "../css/events.scss";
-import { getBoardEvent, IBoard } from "../../../packages/lib/boards";
 
 /** Custom events list view */
 export function EventsView() {
@@ -127,7 +130,11 @@ export function EventsView() {
   let boardEvents = [];
   for (const eventName in board.events) {
     const boardEvent = getBoardEvent(board, eventName)!;
-    const customEvent = createCustomEvent(boardEvent.language, boardEvent.code);
+    const customEvent = createCustomEvent(
+      boardEvent.language,
+      boardEvent.code,
+      boardEvent.files,
+    );
     const isDestructive = _copyToLibraryWillOverwrite(customEvent);
     const isUnchanged = _boardAndLibraryEventAreInSync(customEvent, board);
     boardEvents.push(
@@ -178,17 +185,33 @@ function EventEntryTable(props: { listing: any }) {
   return <div className="eventsViewTable">{props.listing}</div>;
 }
 
+function _eventsDiffer(a: ICustomEvent, b: ICustomEvent): boolean {
+  if (a.asm !== b.asm) return true;
+  if (a.language === EventCodeLanguage.C || b.language === EventCodeLanguage.C) {
+    const aFiles = normalizeEventProject(a.asm, a.files);
+    const bFiles = normalizeEventProject(b.asm, b.files);
+    return !projectFilesEqual(aFiles, bFiles);
+  }
+  return false;
+}
+
 function _copyToBoardWillOverwrite(
   customEvent: ICustomEvent,
   board: IBoard,
 ): boolean {
   if (!board.events || !(customEvent.id in board.events)) return false;
-  return board.events[customEvent.id] !== customEvent.asm;
+  const boardEvent = getBoardEvent(board, customEvent.id)!;
+  const boardCustom = createCustomEvent(
+    boardEvent.language,
+    boardEvent.code,
+    boardEvent.files,
+  );
+  return _eventsDiffer(boardCustom, customEvent);
 }
 
 function _copyToLibraryWillOverwrite(customEvent: ICustomEvent): boolean {
   const libEvent = getEventFromLibrary(customEvent.id) as ICustomEvent;
-  return !!libEvent && libEvent.asm !== customEvent.asm;
+  return !!libEvent && _eventsDiffer(libEvent, customEvent);
 }
 
 function _boardAndLibraryEventAreInSync(
@@ -198,7 +221,13 @@ function _boardAndLibraryEventAreInSync(
   if (!board.events || !(customEvent.id in board.events)) return false;
   const libEvent = getEventFromLibrary(customEvent.id) as ICustomEvent;
   if (!libEvent) return false;
-  return getBoardEvent(board, customEvent.id)!.code === libEvent.asm;
+  const boardEvent = getBoardEvent(board, customEvent.id)!;
+  const boardCustom = createCustomEvent(
+    boardEvent.language,
+    boardEvent.code,
+    boardEvent.files,
+  );
+  return !_eventsDiffer(boardCustom, libEvent);
 }
 
 interface IEventRowProps {

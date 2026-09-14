@@ -77,10 +77,12 @@
   .toggleButton {
     min-width: 140px;
     text-align: center;
+    color: var(--text-color);
   }
 
   .toggleButton.pressed {
     background-color: rgba(0, 0, 0, 0.75);
+    color: #fff;
   }
 }
 

@@ -1,6 +1,7 @@
 import { getAdapter } from "./adapter/adapters";
 import { IDecisionTreeNode } from "./ai/aitrees";
 import { ICustomEvent } from "./events/customevents";
+import { IEventProjectFiles } from "./events/eventproject";
 import { getEventsInLibrary } from "./events/EventLibrary";
 import {
   EventMap,
@@ -41,6 +42,8 @@ interface IBoardBgDetails extends IBoardImage {
 export interface IBoardEvent {
   language: EventCodeLanguage;
   code: string;
+  /** Optional C project files (src/ + include/). */
+  files?: IEventProjectFiles;
 }
 
 export interface IBoardAudioData {
@@ -320,10 +323,14 @@ export function includeEventInBoardInternal(
     throw new Error(
       `Attempting to add event ${event.name} but it doesn't have code`,
     );
-  board.events[event.name] = {
+  const boardEvent: IBoardEvent = {
     language: event.language!,
     code: event.asm,
   };
+  if (event.files) {
+    boardEvent.files = event.files;
+  }
+  board.events[event.name] = boardEvent;
 }
 
 export function addEventToSpaceInternal(

@@ -17,7 +17,21 @@ import {
   validateCustomEvent,
   createCustomEvent,
 } from "../../../packages/lib/events/customevents";
+import {
+  DEFAULT_ENTRY_FILE,
+  EventProjectFolder,
+  IEventProjectFiles,
+  cloneEventProject,
+  createDefaultCProject,
+  getEntrySource,
+  normalizeEventProject,
+  projectFilesEqual,
+} from "../../../packages/lib/events/eventproject";
 import { CodeMirrorWrapper } from "../components/codemirrorwrapper";
+import {
+  EventFileExplorer,
+  IActiveProjectFile,
+} from "../components/EventFileExplorer";
 import { IEventParameter } from "../../../packages/lib/events/events";
 import { getCurrentEvent, confirmFromUser, showMessage } from "../appControl";
 import { TabStrip, Tab } from "../components/tabstrip";
@@ -27,6 +41,7 @@ const _defaultEventC = `// NAME:
 // EXECUTION: Direct
 
 #include "ultra64.h"
+// Headers in include/ are available via #include "file.h"
 
 void main() {
     // Your code here!
@@ -38,12 +53,30 @@ interface ICreateEventViewState {
   eventName: string;
   supportedGames: Game[];
   executionType: EventExecutionType;
-  code: string;
+  files: IEventProjectFiles;
+  activeFile: IActiveProjectFile;
   parameters: IEventParameter[];
   hasError?: boolean;
-  originalCode?: string;
+  originalFiles?: IEventProjectFiles;
   compiledAsm: string | null;
   activeCodeTabIndex: number;
+}
+
+function getFileContent(
+  files: IEventProjectFiles,
+  file: IActiveProjectFile,
+): string {
+  return files[file.folder][file.name] ?? "";
+}
+
+function setFileContent(
+  files: IEventProjectFiles,
+  file: IActiveProjectFile,
+  content: string,
+): IEventProjectFiles {
+  const next = cloneEventProject(files);
+  next[file.folder][file.name] = content;
+  return next;
 }
 
 export class CreateCEventView
@@ -55,22 +88,26 @@ export class CreateCEventView
 
     const currentEvent = getCurrentEvent() as ICustomEvent;
     if (currentEvent) {
+      const files = normalizeEventProject(currentEvent.asm, currentEvent.files);
       this.state = {
         eventName: currentEvent.name,
         supportedGames: currentEvent.supportedGames,
         executionType: currentEvent.executionType,
-        code: currentEvent.asm,
+        files,
+        activeFile: { folder: "src", name: DEFAULT_ENTRY_FILE },
         parameters: currentEvent.parameters!,
-        originalCode: currentEvent.asm,
+        originalFiles: cloneEventProject(files),
         compiledAsm: null,
         activeCodeTabIndex: 0,
       };
     } else {
+      const files = createDefaultCProject(_defaultEventC);
       this.state = {
         eventName: "",
         supportedGames: [],
         executionType: EventExecutionType.DIRECT,
-        code: _defaultEventC,
+        files,
+        activeFile: { folder: "src", name: DEFAULT_ENTRY_FILE },
         parameters: [],
         compiledAsm: null,
         activeCodeTabIndex: 0,
@@ -83,34 +120,58 @@ export class CreateCEventView
       return <p>An error was encountered.</p>;
     }
 
+    const activeContent = getFileContent(this.state.files, this.state.activeFile);
+    const isEntryFile =
+      this.state.activeFile.folder === "src" &&
+      this.state.activeFile.name === DEFAULT_ENTRY_FILE;
+    const showingCompiledAsm =
+      isEntryFile && this.state.activeCodeTabIndex === 1;
+    const activePath = showingCompiledAsm
+      ? "MIPS Assembly (compiled from src/main.c)"
+      : `${this.state.activeFile.folder}/${this.state.activeFile.name}`;
+
     return (
-      <div className="createEventViewContainer">
-        <TabStrip
-          activeTabIndex={this.state.activeCodeTabIndex}
-          className="createEventTabStrip"
-          contentClassName="createEventTabStripContent"
-          tabsClassName="createEventTabStripTabs"
-          onActiveTabChanged={this.onActiveTabChanged}
-        >
-          <Tab caption="C Source" className="createEventTabStripTab">
-            <CodeMirrorWrapper
-              key="c"
-              mode="c"
-              className="eventcodemirror createeventcodemirror"
-              value={this.state.code}
-              onChange={this.onCodeChange}
-            />
-          </Tab>
-          <Tab caption="MIPS Assembly" className="createEventTabStripTab">
-            <CodeMirrorWrapper
-              key="mips"
-              mode="mips-pp64"
-              className="eventcodemirror createeventcodemirror"
-              value={this.state.compiledAsm || undefined}
-              readOnly
-            />
-          </Tab>
-        </TabStrip>
+      <div className="createEventViewContainer createEventIdeLayout">
+        <div className="createEventIdePane">
+          <EventFileExplorer
+            files={this.state.files}
+            activeFile={this.state.activeFile}
+            onSelectFile={this.onSelectFile}
+            onAddFile={this.onAddFile}
+            onDeleteFile={this.onDeleteFile}
+          />
+          <div className="createEventEditorColumn">
+            <div className="createEventOpenFilePath">{activePath}</div>
+            <TabStrip
+              activeTabIndex={isEntryFile ? this.state.activeCodeTabIndex : 0}
+              className="createEventTabStrip"
+              contentClassName="createEventTabStripContent"
+              tabsClassName="createEventTabStripTabs"
+              onActiveTabChanged={this.onActiveTabChanged}
+            >
+              <Tab caption="C Source" className="createEventTabStripTab">
+                <CodeMirrorWrapper
+                  key={activePath}
+                  mode="c"
+                  className="eventcodemirror createeventcodemirror"
+                  value={activeContent}
+                  onChange={this.onCodeChange}
+                />
+              </Tab>
+              {isEntryFile && (
+                <Tab caption="MIPS Assembly" className="createEventTabStripTab">
+                  <CodeMirrorWrapper
+                    key="mips"
+                    mode="mips-pp64"
+                    className="eventcodemirror createeventcodemirror"
+                    value={this.state.compiledAsm || undefined}
+                    readOnly
+                  />
+                </Tab>
+              )}
+            </TabStrip>
+          </div>
+        </div>
         <EventDetailsForm
           name={this.state.eventName}
           onEventNameChange={this.onEventNameChange}
@@ -135,19 +196,69 @@ export class CreateCEventView
     updateCreateEventViewInstance(null);
   }
 
+  onSelectFile = (file: IActiveProjectFile) => {
+    this.setState({
+      activeFile: file,
+      activeCodeTabIndex: 0,
+      compiledAsm: null,
+    });
+  };
+
+  onAddFile = (folder: EventProjectFolder, name: string) => {
+    const files = cloneEventProject(this.state.files);
+    files[folder][name] = `// ${name}\n\n`;
+    this.setState({
+      files,
+      activeFile: { folder, name },
+      activeCodeTabIndex: 0,
+      compiledAsm: null,
+    });
+  };
+
+  onDeleteFile = (folder: EventProjectFolder, name: string) => {
+    if (folder === "src" && name === DEFAULT_ENTRY_FILE) return;
+    const files = cloneEventProject(this.state.files);
+    delete files[folder][name];
+
+    let activeFile = this.state.activeFile;
+    if (activeFile.folder === folder && activeFile.name === name) {
+      activeFile = { folder: "src", name: DEFAULT_ENTRY_FILE };
+    }
+    this.setState({ files, activeFile, activeCodeTabIndex: 0, compiledAsm: null });
+  };
+
   onEventNameChange = (eventName: string) => {
     const newState = { ...this.state, eventName };
     this.setState({ eventName });
-    this.syncTextToStateVars(newState, this.state.code);
+    this.syncTextToStateVars(newState, getEntrySource(this.state.files));
   };
 
-  onCodeChange = (asm: string) => {
-    this.setState({ code: asm });
-    this.syncStateVarsToText(asm);
+  onCodeChange = (code: string) => {
+    const files = setFileContent(this.state.files, this.state.activeFile, code);
+    this.setState({ files });
+    if (
+      this.state.activeFile.folder === "src" &&
+      this.state.activeFile.name === DEFAULT_ENTRY_FILE
+    ) {
+      this.syncStateVarsToText(code);
+    }
   };
 
   updateLastSavedCode(code: string) {
-    this.setState({ originalCode: code });
+    // Keep signature for shared interface; prefer full project snapshot.
+    const files = setFileContent(
+      this.state.files,
+      { folder: "src", name: DEFAULT_ENTRY_FILE },
+      code,
+    );
+    this.setState({
+      files,
+      originalFiles: cloneEventProject(files),
+    });
+  }
+
+  updateLastSavedFiles(files: IEventProjectFiles) {
+    this.setState({ originalFiles: cloneEventProject(files) });
   }
 
   onGameToggleClicked = (id: any, pressed: boolean) => {
@@ -171,7 +282,7 @@ export class CreateCEventView
     }
 
     if (newState) {
-      this.syncTextToStateVars(newState, this.state.code);
+      this.syncTextToStateVars(newState, getEntrySource(this.state.files));
     }
   };
 
@@ -179,14 +290,14 @@ export class CreateCEventView
     const newState = { ...this.state };
     newState.executionType = id;
     this.setState({ executionType: id });
-    this.syncTextToStateVars(newState, this.state.code);
+    this.syncTextToStateVars(newState, getEntrySource(this.state.files));
   };
 
   onAddEventParameter = (entry: IEventParameter) => {
     const newState = { ...this.state };
     newState.parameters = [...this.state.parameters, entry];
     this.setState(newState);
-    this.syncTextToStateVars(newState, this.state.code);
+    this.syncTextToStateVars(newState, getEntrySource(this.state.files));
   };
 
   onRemoveEventParameter = (removedEntry: IEventParameter) => {
@@ -195,7 +306,7 @@ export class CreateCEventView
       return entry.name !== removedEntry.name;
     });
     this.setState(newState);
-    this.syncTextToStateVars(newState, this.state.code);
+    this.syncTextToStateVars(newState, getEntrySource(this.state.files));
   };
 
   getEventName = () => {
@@ -206,19 +317,19 @@ export class CreateCEventView
     return this.state.supportedGames;
   };
 
-  getExecutionType = () => {
-    return this.state.executionType;
+  getEventCode = () => {
+    return getEntrySource(this.state.files);
   };
 
-  getEventCode = () => {
-    return this.state.code;
+  getEventFiles = () => {
+    return cloneEventProject(this.state.files);
   };
 
   getLanguage(): EventCodeLanguage {
     return EventCodeLanguage.C;
   }
 
-  /** Ensures the C text includes the discrete properties. */
+  /** Ensures the entry file includes the discrete properties. */
   syncTextToStateVars = (
     newState: ICreateEventViewState,
     existingCode: string,
@@ -254,11 +365,16 @@ export class CreateCEventView
     );
 
     if (newCode !== existingCode) {
-      this.setState({ code: newCode });
+      const files = setFileContent(
+        this.state.files,
+        { folder: "src", name: DEFAULT_ENTRY_FILE },
+        newCode,
+      );
+      this.setState({ files });
     }
   };
 
-  /** Pulls out discrete properties from the C text back into state. */
+  /** Pulls out discrete properties from the entry file back into state. */
   syncStateVarsToText = (code: string) => {
     let value: any = __readDiscreteProperty(code, "NAME");
     if (value !== null) {
@@ -282,9 +398,9 @@ export class CreateCEventView
   };
 
   promptExit = async () => {
-    const code = this.state.code;
-    const oldAsm = this.state.originalCode;
-    if (!oldAsm || oldAsm !== code) {
+    const files = this.state.files;
+    const oldFiles = this.state.originalFiles;
+    if (!oldFiles || !projectFilesEqual(oldFiles, files)) {
       return await confirmFromUser(
         "Are you sure you want to exit without saving the event?",
       );
@@ -313,7 +429,9 @@ export class CreateCEventView
           }
 
           let asm: string;
-          const event = createCustomEvent(EventCodeLanguage.C, this.state.code);
+          const code = this.getEventCode();
+          const files = this.getEventFiles();
+          const event = createCustomEvent(EventCodeLanguage.C, code, files);
           try {
             await validateCustomEvent(event);
           } catch (e: any) {
@@ -322,11 +440,12 @@ export class CreateCEventView
           try {
             asm = (await CustomAsmHelper.testCustomEvent(
               EventCodeLanguage.C,
-              this.state.code,
+              code,
               this.state.parameters,
               {
                 game: event.supportedGames[0], // Pick one game randomly I guess
               },
+              files,
             )) as string;
           } catch (e: any) {
             showMessage(e.toString());

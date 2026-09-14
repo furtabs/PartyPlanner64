@@ -10,6 +10,7 @@ import {
   createCustomEvent,
   validateCustomEvent,
 } from "../../../packages/lib/events/customevents";
+import { IEventProjectFiles } from "../../../packages/lib/events/eventproject";
 import {
   Game,
   EventExecutionType,
@@ -30,7 +31,9 @@ export interface ICreateEventView {
   getSupportedGames(): Game[];
   getEventCode(): string;
   getLanguage(): EventCodeLanguage;
+  getEventFiles?(): IEventProjectFiles | undefined;
   updateLastSavedCode(code: string): void;
+  updateLastSavedFiles?(files: IEventProjectFiles): void;
   promptExit(): Promise<boolean>;
 }
 
@@ -70,7 +73,11 @@ export async function saveEvent(): Promise<void> {
   }
 
   const language = _createEventViewInstance!.getLanguage();
-  const event = createCustomEvent(language, code);
+  const files =
+    language === EventCodeLanguage.C
+      ? _createEventViewInstance!.getEventFiles?.()
+      : undefined;
+  const event = createCustomEvent(language, code, files);
   try {
     await validateCustomEvent(event);
   } catch (e: any) {
@@ -86,6 +93,9 @@ export async function saveEvent(): Promise<void> {
   if (_createEventViewInstance) {
     // Ensure we don't prompt for unsaved changes.
     _createEventViewInstance.updateLastSavedCode(code);
+    if (files && _createEventViewInstance.updateLastSavedFiles) {
+      _createEventViewInstance.updateLastSavedFiles(files);
+    }
   }
 }
 
