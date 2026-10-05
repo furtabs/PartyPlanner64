@@ -308,6 +308,7 @@ FailingCustomEvents.fails = async function ({ board, boardInfo }, args: any) {
           board,
           boardInfo,
         },
+        boardEvent.files,
       );
     } catch (e) {
       console.error(e);

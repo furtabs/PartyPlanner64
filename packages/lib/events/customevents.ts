@@ -16,9 +16,16 @@ import { compile } from "../utils/c-compiler";
 import { prepC } from "./prepC";
 import { dummyBoardInfo } from "../adapter/boardinfobase";
 import { IEventInstance } from "../boards";
+import {
+  IEventProjectFiles,
+  getEntrySource,
+  normalizeEventProject,
+} from "./eventproject";
 
 export interface ICustomEvent extends IEvent {
   asm: string;
+  /** C event virtual project (src/ + include/). */
+  files?: IEventProjectFiles;
 }
 
 export const CustomAsmHelper = {
@@ -142,13 +149,14 @@ export const CustomAsmHelper = {
     code: string,
     parameters?: IEventParameter[],
     info: Partial<IEventWriteInfo> = {},
+    files?: IEventProjectFiles,
   ) {
     switch (lang) {
       case EventCodeLanguage.MIPS:
         return CustomAsmHelper.testAssemble(code, parameters, info);
 
       case EventCodeLanguage.C:
-        return CustomAsmHelper.testCompile(code, parameters, info);
+        return CustomAsmHelper.testCompile(code, parameters, info, files);
 
       default:
         throw new Error(`Unrecognized event code language: ${lang}`);
@@ -189,10 +197,12 @@ export const CustomAsmHelper = {
     code: string,
     parameters?: IEventParameter[],
     info: Partial<IEventWriteInfo> = {},
+    files?: IEventProjectFiles,
   ) {
     const parameterValues = _makeFakeParameterValues(parameters);
 
-    const customEvent = createCustomEvent(EventCodeLanguage.C, code);
+    const customEvent = createCustomEvent(EventCodeLanguage.C, code, files);
+    const projectFiles = customEvent.files;
     const preppedC = prepC(
       code,
       customEvent,
@@ -209,7 +219,7 @@ export const CustomAsmHelper = {
     );
     $$log(preppedC);
 
-    const asm = await compile(preppedC);
+    const asm = await compile(preppedC, undefined, projectFiles);
     $$log(asm);
 
     const preppedAsm = prepAsm(
@@ -244,32 +254,43 @@ function _makeFakeParameterValues(parameters?: IEventParameter[]): any {
   return parameterValues;
 }
 
-/** Creates a custom event object from a code string. */
-export function createCustomEvent(language: EventCodeLanguage, code: string) {
-  let eventName = CustomAsmHelper.readDiscreteProperty(code, "NAME");
+/** Creates a custom event object from a code string (and optional C project files). */
+export function createCustomEvent(
+  language: EventCodeLanguage,
+  code: string,
+  files?: IEventProjectFiles,
+) {
+  const projectFiles =
+    language === EventCodeLanguage.C
+      ? normalizeEventProject(code, files)
+      : undefined;
+  const entryCode = projectFiles ? getEntrySource(projectFiles) : code;
+
+  let eventName = CustomAsmHelper.readDiscreteProperty(entryCode, "NAME");
   if (!eventName || !eventName.trim()) {
     throw new Error("Custom event must have a name");
   }
   eventName = eventName.trim();
   const eventId = eventName;
 
-  const executionType = CustomAsmHelper.readExecutionType(code);
+  const executionType = CustomAsmHelper.readExecutionType(entryCode);
   if (!executionType) {
     throw new Error("Custom event must have execution type");
   }
 
-  const supportedGames = CustomAsmHelper.readSupportedGames(code);
+  const supportedGames = CustomAsmHelper.readSupportedGames(entryCode);
   if (!supportedGames) {
     throw new Error("Custom event must have supported games list");
   }
 
-  const parameters = CustomAsmHelper.readParameters(code);
+  const parameters = CustomAsmHelper.readParameters(entryCode);
   const custEvent: ICustomEvent = {
     id: eventId,
     name: eventName,
     custom: true,
     language,
-    asm: code,
+    asm: entryCode,
+    files: projectFiles,
     activationType: EditorEventActivationType.LANDON,
     executionType: executionType,
     supportedGames: supportedGames,
@@ -283,7 +304,7 @@ export function createCustomEvent(language: EventCodeLanguage, code: string) {
 export async function validateCustomEvent(
   event: ICustomEvent,
 ): Promise<boolean> {
-  const { language, parameters, supportedGames } = event;
+  const { language, parameters, supportedGames, files } = event;
 
   if (parameters) {
     CustomAsmHelper.validateParameters(parameters);
@@ -295,9 +316,15 @@ export async function validateCustomEvent(
   for (let i = 0; i < supportedGames.length; i++) {
     const game = supportedGames[i];
     try {
-      await CustomAsmHelper.testCustomEvent(language!, code, parameters, {
-        game,
-      });
+      await CustomAsmHelper.testCustomEvent(
+        language!,
+        code,
+        parameters,
+        {
+          game,
+        },
+        files,
+      );
     } catch (e) {
       const errorMsg =
         "Failed a test compile/assembly for " +
@@ -320,14 +347,15 @@ export async function writeCustomEvent(
   lang: EventCodeLanguage,
   code: string,
   temp: any,
+  files?: IEventProjectFiles,
 ) {
   $$log("Writing custom event", spaceEvent, info);
 
-  const customEvent = createCustomEvent(lang, code);
+  const customEvent = createCustomEvent(lang, code, files);
 
   if (lang === EventCodeLanguage.C) {
     const preppedC = prepC(code, customEvent, spaceEvent, info);
-    code = await compile(preppedC);
+    code = await compile(preppedC, undefined, customEvent.files);
   }
 
   return code;

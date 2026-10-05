@@ -741,7 +741,13 @@ function _getEventsForAddList() {
   const boardEvents = [];
   for (const eventName in board.events) {
     const boardEvent = getBoardEvent(board, eventName)!;
-    boardEvents.push(createCustomEvent(boardEvent.language, boardEvent.code));
+    boardEvents.push(
+      createCustomEvent(
+        boardEvent.language,
+        boardEvent.code,
+        boardEvent.files,
+      ),
+    );
   }
 
   // Don't show library events that are also in the board events list.

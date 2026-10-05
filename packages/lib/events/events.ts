@@ -78,7 +78,11 @@ export function getEvent(
 ): IEvent | undefined {
   if (board && board.events && !!getBoardEvent(board, eventId)) {
     const boardEvent = getBoardEvent(board, eventId);
-    return createCustomEvent(boardEvent!.language, boardEvent!.code);
+    return createCustomEvent(
+      boardEvent!.language,
+      boardEvent!.code,
+      boardEvent!.files,
+    );
   }
   return eventLibrary[eventId];
 }
@@ -196,6 +200,7 @@ export async function write(
       boardEvent.language,
       boardEvent.code,
       temp,
+      boardEvent.files,
     );
   } else {
     const libEvent = getEventFromLibrary(event.id);

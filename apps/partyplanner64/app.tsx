@@ -49,6 +49,7 @@ import {
   clearUndoHistory,
 } from "./appControl";
 import { Blocker } from "./components/blocker";
+import { ClangCompileProgressBar } from "./components/ClangCompileProgress";
 import { killEvent } from "./utils/react";
 import {
   getDefaultAdditionalBgCode,
@@ -112,6 +113,8 @@ import {
 } from "../../packages/lib/boards";
 import { setWebCanvasImplementation } from "./utils/canvas";
 import { preloadImages } from "./images";
+import BoardBrowserPage from "./views/BoardBrowserPage";
+
 
 /* eslint-disable jsx-a11y/anchor-is-valid */
 
@@ -282,6 +285,9 @@ function PP64AppInternal(props: PP64AppInternalProps) {
         />
       );
       break;
+    case View.BOARD_BROWSER:
+      mainView = <BoardBrowserPage />;
+      break;
   }
 
   let sidebar;
@@ -349,6 +355,7 @@ function PP64AppInternal(props: PP64AppInternalProps) {
           <div id="dragZone"></div>
         </div>
       </div>
+      <ClangCompileProgressBar />
       <PP64Blocker />
     </div>
   );
@@ -522,6 +529,7 @@ function initializeState(): void {
         const customEvent = createCustomEvent(
           customEventObj.language || EventCodeLanguage.MIPS,
           customEventObj.asm,
+          customEventObj.files,
         );
         store.dispatch(addEventToLibraryAction({ event: customEvent }));
       } catch (e) {

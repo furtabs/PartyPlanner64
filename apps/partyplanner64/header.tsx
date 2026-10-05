@@ -69,6 +69,7 @@ import logoImage from "./img/header/logo.png";
 import romCartImage from "./img/header/romcart.png";
 import newboardImage from "./img/header/newboard.png";
 import loadboardImage from "./img/header/loadboard.png";
+import browseboardsImage from "./img/header/browseboards.png";
 import saveboardImage from "./img/header/saveboard.png";
 import debugImage from "./img/header/debug.png";
 import screenshotImage from "./img/header/screenshot.png";
@@ -105,6 +106,7 @@ interface IHeaderActionItem {
   show?: () => boolean;
 }
 
+
 const actions_norom: IHeaderActionItem[] = [
   {
     name: "Load ROM",
@@ -124,6 +126,12 @@ const actions_norom: IHeaderActionItem[] = [
     icon: loadboardImage,
     type: Action.BOARD_LOAD,
     details: "Import a board file into the editor",
+  },
+  {
+    name: "Browse boards",
+    icon: browseboardsImage,
+    type: Action.BOARD_BROWSE,
+    details: "Browse and import boards from the PartyPlanner API",
   },
   {
     name: "Export board",
@@ -191,6 +199,12 @@ const actions_rom_romboard: IHeaderActionItem[] = [
     icon: loadboardImage,
     type: Action.BOARD_LOAD,
     details: "Import a board file into the editor",
+  },
+  {
+    name: "Browse boards",
+    icon: browseboardsImage,
+    type: Action.BOARD_BROWSE,
+    details: "Browse and import boards from the PartyPlanner API",
   },
   {
     name: "Export board",
@@ -293,6 +307,12 @@ const actions_rom_normalboard: IHeaderActionItem[] = [
     icon: loadboardImage,
     type: Action.BOARD_LOAD,
     details: "Import a board file into the editor",
+  },
+  {
+    name: "Browse boards",
+    icon: browseboardsImage,
+    type: Action.BOARD_BROWSE,
+    details: "Browse and import boards from the PartyPlanner API",
   },
   {
     name: "Export board",
@@ -539,6 +559,9 @@ async function _handleAction(action: Action) {
       if (await basicCodeViewPromptExit()) {
         changeView(View.DETAILS);
       }
+      break;
+    case Action.BOARD_BROWSE:
+      changeView(View.BOARD_BROWSER);
       break;
     default:
       break;

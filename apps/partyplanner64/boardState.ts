@@ -973,7 +973,11 @@ export const selectCurrentEvent = (state: RootState) => {
       const boardEvent =
         selectCurrentBoard(state).events[state.data.present.currentEventId];
       assert(typeof boardEvent !== "string");
-      return createCustomEvent(boardEvent.language, boardEvent.code);
+      return createCustomEvent(
+        boardEvent.language,
+        boardEvent.code,
+        boardEvent.files,
+      );
     }
     case EventType.Library:
       assert(!!state.data.present.currentEventId);
@@ -1216,7 +1220,11 @@ export function getEvent(
 ): IEvent | undefined {
   if (board && board.events && !!getBoardEvent(board, eventId)) {
     const boardEvent = getBoardEvent(board, eventId);
-    return createCustomEvent(boardEvent!.language, boardEvent!.code);
+    return createCustomEvent(
+      boardEvent!.language,
+      boardEvent!.code,
+      boardEvent!.files,
+    );
   }
   return state.eventLibrary[eventId];
 }
