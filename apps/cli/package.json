@@ -13,7 +13,10 @@
   },
   "scripts": {
     "build": "node scripts/build.mjs",
-    "package": "pkg ./dist/out.js -t node16-linux,node16-win -o ./dist/pkg/partyplanner64-cli",
+    "package": "npm run package:linux && npm run package:win && npm run package:macos-intel",
+    "package:linux": "pkg ./dist/out.js -t node16-linux-x64 -o ./dist/pkg/partyplanner64-cli-linux",
+    "package:win": "pkg ./dist/out.js -t node16-win-x64 -o ./dist/pkg/partyplanner64-cli-win.exe",
+    "package:macos-intel": "pkg ./dist/out.js -t node16-macos-x64 -o ./dist/pkg/partyplanner64-cli-macos-intel",
     "type-check": "tsc"
   },
   "dependencies": {
